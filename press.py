@@ -1,203 +1,274 @@
+"""
+press.py - Image optimizer targeting specific SSIM values using multiple encoders.
+
+Usage: press.py <input_image> <target_ssim> [--ssim-method {0,1}]
+"""
+
 import argparse
 import os
 import shutil
 import subprocess
 import tempfile
 
-libjpeg_turbo = "/opt/libjpeg-turbo/bin/cjpeg"
-mozjpeg = "/opt/mozjpeg/bin/cjpeg"
-magick = "magick"
-extention = {"mozjpeg": "jpg", "webp": "webp", "avif": "avif"}
+from tqdm import tqdm
+
+FILE_EXTENSIONS = {"mozjpeg": "jpg", "webp": "webp", "avif": "avif", "png": "png"}
+
+SSIM_METHODS = {0: "ImageMagick", 1: "as2c"}
 
 
-def check_tools(tools):
+class MissingDependencyError(RuntimeError):
+    """Custom exception for missing required dependencies."""
+
+
+def check_dependencies(required_tools):
+    """Verify required system utilities are available."""
     missing = []
-    for tool in tools:
+    for tool in required_tools:
         if not shutil.which(tool):
             missing.append(tool)
+
     if missing:
-        raise RuntimeError(f"Missing required tools: {', '.join(missing)}")
+        raise MissingDependencyError(
+            f"Missing required tools: {', '.join(missing)}. "
+            "Please install them before running this script."
+        )
 
 
-def get_ssim2(original_path, compressed_path):
+def calculate_ssim_imagemagick(original_path, compressed_path):
+    """Calculate SSIM using ImageMagick's compare tool.
+
+    Returns SSIM value between 0-100
+    """
+
+    result = subprocess.run(
+        ["compare", "-metric", "ssim", original_path, compressed_path, "null:"],
+        capture_output=True,
+        text=True,
+    )
+    # Extract SSIM value from stderr output
+    ssim_str = result.stderr.split("(")[1].split(")")[0]
+    return float(ssim_str) * 100
+
+
+def calculate_ssim_as2c(original_path, compressed_path):
+    """Calculate SSIM using as2c utility.
+
+    Returns SSIM value between 0-1
+    """
     try:
         result = subprocess.run(
             ["as2c", original_path, compressed_path],
             capture_output=True,
             text=True,
+            check=True,
         )
-        ssim = float(result.stdout)
-        print(f"\n\tssim={ssim}\n\n")
-        return ssim
-    except (subprocess.CalledProcessError, ValueError):
+        return float(result.stdout)
+    except (subprocess.CalledProcessError, ValueError) as e:
+        print(f"SSIM calculation failed: {str(e)}")
         return None
 
 
-def get_ssim(original_path, compressed_path):
-    try:
-        result = subprocess.run(
-            ["compare", "-metric", "ssim", original_path, compressed_path, "null:"],
-            capture_output=True,
-            text=True,
-        )
-        ssim = float(result.stderr.split("(")[1].split(")")[0])
-        print(f"\n\tssim={ssim}\n\n")
-        return ssim
-    except (subprocess.CalledProcessError, ValueError):
-        return None
+get_ssim = calculate_ssim_imagemagick
 
 
-get_ssims = [get_ssim, get_ssim2]
+def quality_optimizer(encoder_func):
+    """Convert encoder function into binary search.
 
+    Find optimal quality setting that meets target SSIM requirement
+    """
 
-def find_best(program):
-    ext = extention[program.__name__[1:]]
-
-    def binary_search(original, tmp_dir, target_ssim):
-        low, high, best = 0, 100, (None, None)
-        for _ in range(7):
-            if low > high:
-                break
-            mid = int(0.5 + ((low + high) / 2))
-            output = os.path.join(tmp_dir, f"{program.__name__}_{mid}.{ext}")
-            try:
-                decoded_png = program(original, output, mid)
-                ssim = ssims(original, decoded_png)
-                if ssim and ssim >= target_ssim:
-                    best = (mid, os.path.getsize(output))
-                    high = mid
-                else:
-                    low = mid
-            except subprocess.CalledProcessError:
+    def binary_search(original_path, temp_dir, target_ssim):
+        best = (None, None)
+        extension = FILE_EXTENSIONS[encoder_func.__name__.split("_")[1]]
+        base_name = os.path.splitext(os.path.basename(args.input_image))[0]
+        # Binary search with 7 iterations
+        itt = list(range(7))[::-1]
+        mid = 0
+        for i in tqdm(itt, desc=f"{extension}"):
+            if mid == 100:
                 continue
+            else:
+                pos = 0b1 << i
+                if (mid := mid + pos) > 100:
+                    mid = 100
+            output_path = os.path.join(temp_dir, f"{base_name}_{mid}.{extension}")
+            try:
+                decoded_png = encoder_func(original_path, output_path, mid)
+                current_ssim = get_ssim(original_path, decoded_png)
+                if current_ssim >= target_ssim:
+                    best = (mid, os.path.getsize(output_path))
+                    mid -= pos
+            except subprocess.CalledProcessError as e:
+                print(f"Encoder failed at quality {mid}: {str(e)}")
+                continue
+
         return best
 
     return binary_search
 
 
-@find_best
-def cwebp(input_png, output_webp, quality):
+@quality_optimizer
+def encode_webp(input_png, output_path, quality):
+    """Encode image to WebP format using cwebp."""
     subprocess.run(
-        ["cwebp", "-m", "6", "-q", str(quality), input_png, "-o", output_webp],
+        ["cwebp", "-m", "6", "-q", str(quality), input_png, "-o", output_path],
         check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-    decoded_png = os.path.join(os.path.dirname(output_webp), "decoded_webp.png")
-    subprocess.run(["dwebp", output_webp, "-o", decoded_png], check=True)
+    decoded_png = os.path.join(os.path.dirname(output_path), "decoded_webp.png")
+    subprocess.run(
+        ["dwebp", output_path, "-o", decoded_png],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     return decoded_png
 
 
-@find_best
-def cavif(input_png, output_avif, quality):
+@quality_optimizer
+def encode_avif(input_png, output_path, quality):
+    """Encode image to AVIF format using avifenc."""
+    subprocess.run(
+        ["avifenc", "-q", str(quality), "-j", "all", "-s", "0", input_png, output_path],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    decoded_png = os.path.join(os.path.dirname(output_path), "decoded_avif.png")
+    subprocess.run(
+        ["avifdec", output_path, decoded_png],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return decoded_png
+
+
+@quality_optimizer
+def encode_mozjpeg(input_png, output_path, quality):
+    """Encode image to JPEG using MozJPEG."""
     subprocess.run(
         [
-            "avifenc",
-            "-q",
-            f"{quality}",
-            "-j",
-            "all",
-            "-s",
-            "0",
+            "cjpeg",
+            "-quality",
+            str(quality),
+            "-outfile",
+            output_path,
             input_png,
-            output_avif,
         ],
         check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-    decoded_png = os.path.join(os.path.dirname(output_avif), "decoded_avif.png")
-    subprocess.run(["avifdec", output_avif, decoded_png], check=True)
-    return decoded_png
-
-
-@find_best
-def cmozjpeg(input_png, output_jpg, quality):
+    decoded_png = os.path.join(os.path.dirname(output_path), "decoded_mozjpeg.png")
     subprocess.run(
-        [mozjpeg, "-quality", str(quality), "-outfile", output_jpg, input_png],
+        ["magick", output_path, decoded_png],
         check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-    decoded_png = os.path.join(os.path.dirname(output_jpg), "decoded_mozjpeg.png")
-    subprocess.run([magick, output_jpg, decoded_png], check=True)
     return decoded_png
 
 
-def process_png(reference_png, temp_dir):
-    output_png = os.path.join(temp_dir, "compressed.png")
-    subprocess.run(["pngcrush", reference_png, output_png], check=True)
-    return os.path.getsize(output_png), 100
+def optimize_png(original_path, temp_dir, target_ssim=None):
+    """Optimize PNG using pngcrush."""
+    base_name = os.path.splitext(os.path.basename(args.input_image))[0]
+    output_path = os.path.join(temp_dir, f"{base_name}_100.png")
+    subprocess.run(
+        ["pngcrush", original_path, output_path],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return 100, os.path.getsize(output_path)  # Quality is meaningless for PNG
 
 
-def main():
-    global ssims
-    parser = argparse.ArgumentParser(description="Optimize image for target SSIM.")
-    parser.add_argument("input_image", help="Input image path")
-    parser.add_argument("target_ssim", type=float, help="Target SSIM (0.0-1.0)")
-    parser.add_argument("--ssim2", type=int, default=0, help="ssim 2 ??")
+encodes = {
+    "mozjpeg": encode_mozjpeg,
+    "webp": encode_webp,
+    "avif": encode_avif,
+    "png": optimize_png,
+}
+
+if __name__ == "__main__":
+    # Configure SSIM calculation method
+    parser = argparse.ArgumentParser(
+        description="Optimize images for target SSIM using multiple encoders",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("input_image", help="Path to source image file")
+    parser.add_argument("target_ssim", type=float, help="Target SSIM value (0-100)")
+    parser.add_argument(
+        "--ssim-method",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="SSIM calculation method: 0=ImageMagick (ssim), 1=as2c (assim2)",
+    )
     args = parser.parse_args()
-    ssims = get_ssims[args.ssim2]
+
+    # Set global SSIM function based on user choice
+    if args.ssim_method:
+        get_ssim = calculate_ssim_as2c
+
+    # Verify system dependencies
     try:
-        check_tools(
+        check_dependencies(
             [
-                magick,
+                "magick",
+                "cjpeg",
                 "cwebp",
                 "dwebp",
                 "avifenc",
                 "avifdec",
-                "cjpeg",
                 "pngcrush",
-                "compare",
             ]
         )
-    except RuntimeError as e:
-        print(e)
-        return
+    except MissingDependencyError as e:
+        print(str(e))
+        exit
 
+    results = {}
     with tempfile.TemporaryDirectory() as temp_dir:
+        # Convert input to PNG for consistent comparison
         reference_png = os.path.join(temp_dir, "reference.png")
         subprocess.run(["magick", args.input_image, reference_png], check=True)
 
-        results = {}
-
-        # MozJPEG
-        quality, size = cmozjpeg(reference_png, temp_dir, args.target_ssim)
-        if quality:
-            results["mozjpeg"] = {"size": size, "quality": quality}
-        print(results["mozjpeg"])
-
-        # WebP
-        quality, size = cwebp(reference_png, temp_dir, args.target_ssim)
-        print(quality, size)
-        if quality:
-            results["webp"] = {"size": size, "quality": quality}
-
-        # AVIF
-        quality, size = cavif(reference_png, temp_dir, args.target_ssim)
-        if quality:
-            results["avif"] = {"size": size, "quality": quality}
-
-        # PNG
-        try:
-            size, quality = process_png(reference_png, temp_dir)
-            results["png"] = {"size": size, "quality": quality}
-        except:
-            pass
+        for key in encodes:
+            # Process through all encoders
+            try:
+                quality, size = encodes[key](reference_png, temp_dir, args.target_ssim)
+                print(f"best {key}: size={size}, quality={quality}")
+                if quality:
+                    results[key] = {"size": size, "quality": quality}
+            except Exception as e:
+                print(f"{key} encoding failed: {str(e)}")
 
         if not results:
-            print("No valid conversions found.")
-            return
-        formats = {i: results[i]["size"] for i in results}
-        best_format = min(formats, key=formats.get)
-        out = f"""
-            Best format: {best_format}
-            ({results[best_format]['size']} bytes)
-        """
-        print(out)
-        print(results)
-        ext = extention[best_format]
-        qual = results[best_format]["quality"]
-        best = os.path.join(temp_dir, f"c{best_format}_{qual}.{ext}")
-        name = os.path.basename(args.input_image).split(".")[0]
-        shutil.move(best, f"./{name}_{qual}_{args.target_ssim}.{ext}")
+            print("No successful encodings achieved")
+            exit
 
-    return results
+        # Determine best format by size
+        best_format = min(results, key=lambda x: results[x]["size"])
+        best_result = results[best_format]
 
+        # Create output filename
+        base_name = os.path.splitext(os.path.basename(args.input_image))[0]
+        output_file = (
+            f"{base_name}_{best_result['quality']}.{FILE_EXTENSIONS[best_format]}"
+        )
 
-if __name__ == "__main__":
-    results = main()
+        # Move best result to current directory
+        source_path = os.path.join(
+            temp_dir,
+            f"{base_name}_{best_result['quality']}.{FILE_EXTENSIONS[best_format]}",
+        )
+        shutil.move(source_path, output_file)
+
+        print(
+            f"""\nOptimization complete!
+        Best format: {best_format} ({best_result['size']} bytes)
+        Output file: {output_file}"""
+        )
