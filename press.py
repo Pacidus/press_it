@@ -1,8 +1,4 @@
-"""
-press.py - Image optimizer targeting specific SSIM values using multiple encoders.
-
-Usage: press.py <input_image> <target_ssim> [--ssim-method {0,1}]
-"""
+"""Image optimizer targeting specific SSIM values using multiple encoders."""
 
 import argparse
 import os
@@ -12,9 +8,27 @@ import tempfile
 
 from tqdm import tqdm
 
-FILE_EXTENSIONS = {"mozjpeg": "jpg", "webp": "webp", "avif": "avif", "png": "png"}
+FILE_EXTENSIONS = {
+    "mozjpeg": "jpg",
+    "webp": "webp",
+    "avif": "avif",
+    "png": "png",
+}
 
-SSIM_METHODS = {0: "ImageMagick", 1: "as2c"}
+SSIM_METHODS = {
+    0: "ImageMagick",
+    1: "as2c",
+}
+
+DEPENDENCIES = [
+    "pngcrush",
+    "avifenc",
+    "avifdec",
+    "magick",
+    "cjpeg",
+    "cwebp",
+    "dwebp",
+]
 
 
 class MissingDependencyError(RuntimeError):
@@ -35,14 +49,27 @@ def check_dependencies(required_tools):
         )
 
 
+def resize(file, size):
+    """Resize the file to the size."""
+    subprocess.run(
+        [
+            "magick",
+            file,
+            "-resize",
+            size,
+            file,
+        ],
+        check=True,
+    )
+
+
 def calculate_ssim_imagemagick(original_path, compressed_path):
     """Calculate SSIM using ImageMagick's compare tool.
 
     Returns SSIM value between 0-100
     """
-
     result = subprocess.run(
-        ["compare", "-metric", "ssim", original_path, compressed_path, "null:"],
+        ["compare", "-metric ssim", original_path, compressed_path, "null:"],
         capture_output=True,
         text=True,
     )
@@ -60,8 +87,8 @@ def calculate_ssim_as2c(original_path, compressed_path):
         result = subprocess.run(
             ["as2c", original_path, compressed_path],
             capture_output=True,
-            text=True,
             check=True,
+            text=True,
         )
         return float(result.stdout)
     except (subprocess.CalledProcessError, ValueError) as e:
@@ -85,7 +112,7 @@ def quality_optimizer(encoder_func):
         # Binary search with 7 iterations
         itt = list(range(7))[::-1]
         mid = 0
-        for i in tqdm(itt, desc=f"{extension}"):
+        for i in (pbar := tqdm(itt, desc=f"{extension: >5}  None  None")):
             if mid == 100:
                 continue
             else:
@@ -99,6 +126,7 @@ def quality_optimizer(encoder_func):
                 if current_ssim >= target_ssim:
                     best = (mid, os.path.getsize(output_path))
                     mid -= pos
+                pbar.set_description(f"{extension: >5} {mid: 5d} {current_ssim: 5.1f}")
             except subprocess.CalledProcessError as e:
                 print(f"Encoder failed at quality {mid}: {str(e)}")
                 continue
@@ -198,14 +226,29 @@ if __name__ == "__main__":
         description="Optimize images for target SSIM using multiple encoders",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("input_image", help="Path to source image file")
-    parser.add_argument("target_ssim", type=float, help="Target SSIM value (0-100)")
+    parser.add_argument(
+        "input_image",
+        help="Path to source image file"
+    )
+    parser.add_argument(
+        "target_ssim",
+        type=float,
+        help="Target SSIM value (0-100)"
+    )
     parser.add_argument(
         "--ssim-method",
         type=int,
         choices=[0, 1],
         default=0,
         help="SSIM calculation method: 0=ImageMagick (ssim), 1=as2c (assim2)",
+    )
+    parser.add_argument(
+        "--resize",
+        "-r",
+        type=str,
+        help=""
+        "Resize the image (width)x(height)"
+        "if one of the dimentions is not set the aspect ratio is respected",
     )
     args = parser.parse_args()
 
@@ -215,17 +258,7 @@ if __name__ == "__main__":
 
     # Verify system dependencies
     try:
-        check_dependencies(
-            [
-                "magick",
-                "cjpeg",
-                "cwebp",
-                "dwebp",
-                "avifenc",
-                "avifdec",
-                "pngcrush",
-            ]
-        )
+        check_dependencies(DEPENDENCIES)
     except MissingDependencyError as e:
         print(str(e))
         exit
@@ -234,15 +267,21 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as temp_dir:
         # Convert input to PNG for consistent comparison
         reference_png = os.path.join(temp_dir, "reference.png")
-        subprocess.run(["magick", args.input_image, reference_png], check=True)
+        subprocess.run(["magick", args.input_image, "-alpha", "off", reference_png], check=True)
+        if args.resize:
+            resize(reference_png, args.resize)
 
         for key in encodes:
             # Process through all encoders
+            encd = encodes[key]
             try:
-                quality, size = encodes[key](reference_png, temp_dir, args.target_ssim)
+                quality, size = encd(reference_png, temp_dir, args.target_ssim)
                 print(f"best {key}: size={size}, quality={quality}")
                 if quality:
-                    results[key] = {"size": size, "quality": quality}
+                    results[key] = {
+                        "size": size,
+                        "quality": quality,
+                    }
             except Exception as e:
                 print(f"{key} encoding failed: {str(e)}")
 
@@ -257,18 +296,17 @@ if __name__ == "__main__":
         # Create output filename
         base_name = os.path.splitext(os.path.basename(args.input_image))[0]
         output_file = (
-            f"{base_name}_{best_result['quality']}.{FILE_EXTENSIONS[best_format]}"
+            f"{base_name}_{best_result['quality']}"
+            f".{FILE_EXTENSIONS[best_format]}"
         )
 
         # Move best result to current directory
-        source_path = os.path.join(
-            temp_dir,
-            f"{base_name}_{best_result['quality']}.{FILE_EXTENSIONS[best_format]}",
-        )
+        source_path = os.path.join(temp_dir, output_file)
         shutil.move(source_path, output_file)
 
         print(
-            f"""\nOptimization complete!
-        Best format: {best_format} ({best_result['size']} bytes)
-        Output file: {output_file}"""
+            "\n"
+            "Optimization complete!\n"
+            f"    Best format: {best_format} ({best_result['size']} bytes)\n"
+            f"    Output file: {output_file}"
         )
