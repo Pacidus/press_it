@@ -250,6 +250,11 @@ if __name__ == "__main__":
         "Resize the image (width)x(height)"
         "if one of the dimentions is not set the aspect ratio is respected",
     )
+    parser.add_argument(
+        "-o",
+        type=str,
+        help="output file, if empty it's the working directory"
+    )
     args = parser.parse_args()
 
     # Set global SSIM function based on user choice
@@ -293,16 +298,21 @@ if __name__ == "__main__":
         best_format = min(results, key=lambda x: results[x]["size"])
         best_result = results[best_format]
 
+        output_dir = "./"
+        if args.o:
+            output_dir = args.o
+
         # Create output filename
         base_name = os.path.splitext(os.path.basename(args.input_image))[0]
         output_file = (
-            f"{base_name}_{best_result['quality']}"
-            f".{FILE_EXTENSIONS[best_format]}"
+                f"{base_name}_{best_result['quality']}"
+                f".{FILE_EXTENSIONS[best_format]}"
         )
 
         # Move best result to current directory
         source_path = os.path.join(temp_dir, output_file)
-        shutil.move(source_path, output_file)
+        output_path = os.path.join(f"{output_dir}/", output_file)
+        shutil.move(source_path, output_path)
 
         print(
             "\n"
