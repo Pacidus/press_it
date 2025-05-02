@@ -8,6 +8,9 @@ import tempfile
 
 from tqdm import tqdm
 
+# Import the ssimulacra2 library
+from ssimulacra2 import compute_ssimulacra2, compute_ssimulacra2_with_alpha
+
 FILE_EXTENSIONS = {
     "mozjpeg": "jpg",
     "webp": "webp",
@@ -15,11 +18,12 @@ FILE_EXTENSIONS = {
     "png": "png",
 }
 
+# Updated to use ssimulacra2 library
 SSIM_METHODS = {
-    0: "ImageMagick",
-    1: "as2c",
+    0: "SSIMULACRA2",
 }
 
+# Updated dependencies (removed as2c)
 DEPENDENCIES = [
     "pngcrush",
     "avifenc",
@@ -63,40 +67,17 @@ def resize(file, size):
     )
 
 
-def calculate_ssim_imagemagick(original_path, compressed_path):
-    """Calculate SSIM using ImageMagick's compare tool.
+def calculate_ssimulacra2(original_path, compressed_path):
+    """Calculate SSIM using ssimulacra2 Python library.
 
     Returns SSIM value between 0-100
     """
-    result = subprocess.run(
-        ["compare", "-metric ssim", original_path, compressed_path, "null:"],
-        capture_output=True,
-        text=True,
-    )
-    # Extract SSIM value from stderr output
-    ssim_str = result.stderr.split("(")[1].split(")")[0]
-    return float(ssim_str) * 100
+    # The compute_ssimulacra2_with_alpha function handles both alpha and non-alpha images
+    return compute_ssimulacra2_with_alpha(original_path, compressed_path)
 
 
-def calculate_ssim_as2c(original_path, compressed_path):
-    """Calculate SSIM using as2c utility.
-
-    Returns SSIM value between 0-1
-    """
-    try:
-        result = subprocess.run(
-            ["as2c", original_path, compressed_path],
-            capture_output=True,
-            check=True,
-            text=True,
-        )
-        return float(result.stdout)
-    except (subprocess.CalledProcessError, ValueError) as e:
-        print(f"SSIM calculation failed: {str(e)}")
-        return None
-
-
-get_ssim = calculate_ssim_imagemagick
+# Set default SSIM calculation method to ssimulacra2
+get_ssim = calculate_ssimulacra2
 
 
 def quality_optimizer(encoder_func):
@@ -226,21 +207,14 @@ if __name__ == "__main__":
         description="Optimize images for target SSIM using multiple encoders",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
-        "input_image",
-        help="Path to source image file"
-    )
-    parser.add_argument(
-        "target_ssim",
-        type=float,
-        help="Target SSIM value (0-100)"
-    )
+    parser.add_argument("input_image", help="Path to source image file")
+    parser.add_argument("target_ssim", type=float, help="Target SSIM value (0-100)")
     parser.add_argument(
         "--ssim-method",
         type=int,
-        choices=[0, 1],
+        choices=[0],
         default=0,
-        help="SSIM calculation method: 0=ImageMagick (ssim), 1=as2c (assim2)",
+        help="SSIM calculation method: 0=SSIMULACRA2",
     )
     parser.add_argument(
         "--resize",
@@ -251,28 +225,27 @@ if __name__ == "__main__":
         "if one of the dimentions is not set the aspect ratio is respected",
     )
     parser.add_argument(
-        "-o",
-        type=str,
-        help="output file, if empty it's the working directory"
+        "-o", type=str, help="output file, if empty it's the working directory"
     )
     args = parser.parse_args()
 
-    # Set global SSIM function based on user choice
-    if args.ssim_method:
-        get_ssim = calculate_ssim_as2c
+    # Since we only have one SSIM method now, this is simplified
+    get_ssim = calculate_ssimulacra2
 
     # Verify system dependencies
     try:
         check_dependencies(DEPENDENCIES)
     except MissingDependencyError as e:
         print(str(e))
-        exit
+        exit(1)  # Added exit code
 
     results = {}
     with tempfile.TemporaryDirectory() as temp_dir:
         # Convert input to PNG for consistent comparison
         reference_png = os.path.join(temp_dir, "reference.png")
-        subprocess.run(["magick", args.input_image, "-alpha", "off", reference_png], check=True)
+        subprocess.run(
+            ["magick", args.input_image, "-alpha", "off", reference_png], check=True
+        )
         if args.resize:
             resize(reference_png, args.resize)
 
@@ -292,7 +265,7 @@ if __name__ == "__main__":
 
         if not results:
             print("No successful encodings achieved")
-            exit
+            exit(1)  # Added exit code
 
         # Determine best format by size
         best_format = min(results, key=lambda x: results[x]["size"])
@@ -305,8 +278,7 @@ if __name__ == "__main__":
         # Create output filename
         base_name = os.path.splitext(os.path.basename(args.input_image))[0]
         output_file = (
-                f"{base_name}_{best_result['quality']}"
-                f".{FILE_EXTENSIONS[best_format]}"
+            f"{base_name}_{best_result['quality']}" f".{FILE_EXTENSIONS[best_format]}"
         )
 
         # Move best result to current directory
