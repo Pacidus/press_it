@@ -69,6 +69,20 @@ optional arguments:
 4. The format with the smallest file size that meets the quality target is selected
 5. The optimized image is saved to the output directory
 
+## SSIM Score Interpretation
+
+The SSIMULACRA2 scores used for quality measurement can be interpreted as follows:
+
+- **Negative scores**: Extremely low quality, very strong distortion
+- **10**: Very low quality - comparable to what you'd get from low quality JPEG
+- **30**: Low quality - visible compression artifacts
+- **50**: Medium quality - acceptable for most web content
+- **70**: High quality - hard to notice artifacts without comparison to the original
+- **80**: Very high quality - most people couldn't tell the difference from the original
+- **85**: Excellent quality - virtually impossible to distinguish from the original
+- **90**: Visually lossless - even in a flicker test, you can't tell the difference
+- **100**: Mathematically lossless - pixel-perfect match to the original
+
 ## License
 
 This project is licensed under the GNU General Public License v3 (GPL-3.0) - see the LICENSE file for details.
