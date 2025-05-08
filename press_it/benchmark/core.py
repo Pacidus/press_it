@@ -142,21 +142,27 @@ class BenchmarkRunner:
         # Python implementation
         try:
             python_score = run_python_ssimulacra2(original_path, decoded_path)
-            print(f"  Python score: {python_score:.4f}")
+            print(f"  Python score: {python_score}")
         except Exception as e:
             print(f"Error with Python implementation: {e}")
 
         # C++ implementation
         try:
             cpp_score = run_cpp_ssimulacra2(original_path, decoded_path)
-            print(f"  C++ score: {cpp_score:.4f if cpp_score else 'N/A'}")
+            if cpp_score is not None:
+                print(f"  C++ score: {cpp_score}")
+            else:
+                print("  C++ score: N/A")
         except Exception as e:
             print(f"Error with C++ implementation: {e}")
 
         # Rust implementation
         try:
             rust_score = run_rust_ssimulacra2(original_path, decoded_path)
-            print(f"  Rust score: {rust_score:.4f if rust_score else 'N/A'}")
+            if rust_score is not None:
+                print(f"  Rust score: {rust_score}")
+            else:
+                print("  Rust score: N/A")
         except Exception as e:
             print(f"Error with Rust implementation: {e}")
 
