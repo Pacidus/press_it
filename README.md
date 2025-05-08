@@ -168,7 +168,7 @@ press_it uses SSIMULACRA2 to measure the perceptual quality of compressed images
 4. Selects the format that produces the smallest file size while meeting your target quality
 5. Outputs the optimized image in the selected format
 
-For detailed information about SSIMULACRA2 and how to interpret quality scores, please refer to the [original SSIMULACRA2 implementation](https://github.com/libjxl/libjxl/tree/main/tools/ssimulacra2) in the JPEG XL repository.
+For detailed information about SSIMULACRA2 and how to interpret quality scores, please refer to the [original SSIMULACRA2 implementation](https://github.com/cloudinary/ssimulacra2) by cloudinary.
 
 ## Requirements
 
