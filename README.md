@@ -139,21 +139,17 @@ These results can be analyzed to:
 - Develop optimized compression strategies for different image types
 - Visualize quality-vs-size tradeoffs for each format
 
-## Quality Score Interpretation
+## How It Works
 
-SSIMULACRA2 provides a quality score from 100 (perfect) to negative values (severe degradation):
+press_it uses SSIMULACRA2 to measure the perceptual quality of compressed images. When you provide a target quality score (0-100), the tool:
 
-| Score | Quality Level | Description |
-|-------|---------------|-------------|
-| < 0 | Extremely Low | Very strong distortion |
-| 10 | Very Low | Heavy compression artifacts |
-| 30 | Low | Noticeable artifacts |
-| 50 | Medium | Acceptable for most web content |
-| 70 | High | Hard to notice artifacts without comparison |
-| 80 | Very High | Most people can't distinguish from original |
-| 85 | Excellent | Virtually indistinguishable from original |
-| 90 | Visually Lossless | Imperceptible differences even in flicker tests |
-| 100 | Mathematically Lossless | Pixel-perfect match to original |
+1. Converts your input image to a standardized format
+2. Tests compression with different formats (JPEG, WebP, AVIF, PNG)
+3. Performs a binary search to find the optimal quality parameter for each format
+4. Selects the format that produces the smallest file size while meeting your target quality
+5. Outputs the optimized image in the selected format
+
+For detailed information about SSIMULACRA2 and how to interpret quality scores, please refer to the [original SSIMULACRA2 implementation](https://github.com/libjxl/libjxl/tree/main/tools/ssimulacra2) in the JPEG XL repository.
 
 ## Requirements
 
