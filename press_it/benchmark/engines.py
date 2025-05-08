@@ -61,7 +61,6 @@ def run_cpp_ssimulacra2(original_path, compressed_path):
 
     except FileNotFoundError:
         print("C++ implementation (ssimulacra2) not found in PATH")
-        print(result)
         return None
     except Exception as e:
         print(f"Error with C++ implementation: {e}")

@@ -23,7 +23,14 @@ from press_it.benchmark.engines import (
 class BenchmarkRunner:
     """Class to manage a benchmark run."""
 
-    def __init__(self, output_file=None, temp_dir=None, quality_min=5, quality_max=95):
+    def __init__(
+        self,
+        output_file=None,
+        temp_dir=None,
+        quality_min=5,
+        quality_max=95,
+        verbose=False,
+    ):
         """Initialize the benchmark runner.
 
         Args:
@@ -31,10 +38,12 @@ class BenchmarkRunner:
             temp_dir (str, optional): Path to use for temporary files
             quality_min (int): Minimum quality value to test (5-100)
             quality_max (int): Maximum quality value to test (5-100)
+            verbose (bool): Whether to show detailed progress information
         """
         # Set quality range
         self.quality_min = max(5, min(100, quality_min))
         self.quality_max = max(5, min(100, quality_max))
+        self.verbose = verbose
 
         if self.quality_min > self.quality_max:
             self.quality_min, self.quality_max = self.quality_max, self.quality_min
@@ -89,16 +98,25 @@ class BenchmarkRunner:
         # Choose a random encoder
         encoder_funcs = [encode_mozjpeg, encode_webp, encode_avif]
         encoder = random.choice(encoder_funcs)
+        encoder_name = encoder.__name__.split("_")[1]
 
         # Apply random quality from configured range
         quality = random.randint(self.quality_min, self.quality_max)
+
+        if self.verbose:
+            print(
+                f"Compressing {Path(original_path).name} with {encoder_name} at quality {quality}"
+            )
 
         try:
             return encoder(
                 original_path, self.compressed_image_dir, self.decoded_dir, quality
             )
         except Exception as e:
-            print(f"Compression failed, trying MozJPEG as fallback: {e}")
+            if self.verbose:
+                print(
+                    f"Compression failed with {encoder_name}, trying MozJPEG as fallback: {e}"
+                )
             # Fallback to MozJPEG if the chosen encoder fails
             return encode_mozjpeg(
                 original_path, self.compressed_image_dir, self.decoded_dir, quality
@@ -141,6 +159,8 @@ class BenchmarkRunner:
 
         # Python implementation
         try:
+            if self.verbose:
+                print("  Running Python SSIMULACRA2 implementation...")
             python_score = run_python_ssimulacra2(original_path, decoded_path)
             print(f"  Python score: {python_score}")
         except Exception as e:
@@ -148,6 +168,8 @@ class BenchmarkRunner:
 
         # C++ implementation
         try:
+            if self.verbose:
+                print("  Running C++ SSIMULACRA2 implementation...")
             cpp_score = run_cpp_ssimulacra2(original_path, decoded_path)
             if cpp_score is not None:
                 print(f"  C++ score: {cpp_score}")
@@ -158,6 +180,8 @@ class BenchmarkRunner:
 
         # Rust implementation
         try:
+            if self.verbose:
+                print("  Running Rust SSIMULACRA2 implementation...")
             rust_score = run_rust_ssimulacra2(original_path, decoded_path)
             if rust_score is not None:
                 print(f"  Rust score: {rust_score}")
@@ -165,6 +189,11 @@ class BenchmarkRunner:
                 print("  Rust score: N/A")
         except Exception as e:
             print(f"Error with Rust implementation: {e}")
+
+        if self.verbose:
+            print(
+                f"  Compression ratio: {compression_ratio:.2f}x ({compressed_size} bytes)"
+            )
 
         return {
             "original_path": original_path,
@@ -219,13 +248,21 @@ class BenchmarkRunner:
         print(f"Decoded images will be saved to: {self.decoded_dir}")
         print(f"Results will be saved to: {self.output_file}")
 
+        if self.verbose:
+            print(f"Quality range: {self.quality_min} to {self.quality_max}")
+            print(f"Verbose mode: Enabled")
+
         try:
             image_count = 0
             while self.running and (infinite_mode or image_count < num_images):
                 try:
                     # Get a random original image
+                    if self.verbose:
+                        print(
+                            f"\nProcessing image {image_count + 1}{'/' + str(num_images) if not infinite_mode else ''}"
+                        )
                     original_path = get_random_image(
-                        self.original_image_dir, image_count
+                        self.original_image_dir, image_count, self.verbose
                     )
 
                     # Compress with random format and quality
@@ -265,6 +302,8 @@ class BenchmarkRunner:
         finally:
             # Even if there's an unhandled exception, we want to save the results
             if self.results:
+                if self.verbose:
+                    print(f"\nSaving benchmark results to: {self.output_file}")
                 self.save_results()
                 print(f"\nBenchmark complete. Processed {len(self.results)} images.")
             else:

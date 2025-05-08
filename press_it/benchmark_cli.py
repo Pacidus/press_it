@@ -67,7 +67,15 @@ def main():
     )
 
     parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed progress information during benchmark",
+    )
+
+    parser.add_argument(
         "--version",
+        "-V",
         action="version",
         version=f"press-benchmark {__version__}",
     )
@@ -92,6 +100,7 @@ def main():
             temp_dir=args.temp_dir,
             quality_min=args.quality_min,
             quality_max=args.quality_max,
+            verbose=args.verbose,
         )
 
         num_processed = benchmark.run(num_images=args.num_images)

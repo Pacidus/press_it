@@ -8,12 +8,13 @@ from pathlib import Path
 import requests
 
 
-def get_random_image(output_dir, image_id=None):
+def get_random_image(output_dir, image_id=None, verbose=False):
     """Download a random image from Picsum Photos with random dimensions.
 
     Args:
         output_dir (Path): Directory to save the downloaded image
         image_id (int, optional): Image identifier for naming
+        verbose (bool): Whether to show detailed progress information
 
     Returns:
         str: Path to the downloaded or fallback image
@@ -27,12 +28,17 @@ def get_random_image(output_dir, image_id=None):
 
     # Skip download if file already exists (from a previous run)
     if output_path.exists():
+        if verbose:
+            print(f"Using existing image: {output_path}")
         return str(output_path)
 
     try:
         # Get a random image with random dimensions
         width = random.choice([800, 1024, 1280, 1600])
         height = random.choice([600, 768, 960, 1200])
+
+        if verbose:
+            print(f"Downloading new image ({width}x{height})...")
 
         # Simple URL for random image with specified dimensions
         image_url = f"https://picsum.photos/{width}/{height}"
@@ -45,6 +51,9 @@ def get_random_image(output_dir, image_id=None):
         temp_jpg = temp_dir / f"temp_{image_id_str}.jpg"
         with open(temp_jpg, "wb") as f:
             f.write(response.content)
+
+        if verbose:
+            print(f"Converting image to PNG format...")
 
         # Convert to PNG with alpha removed for consistent comparison
         subprocess.run(

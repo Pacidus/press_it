@@ -41,15 +41,26 @@ pip install press-it
 ### Image Compression
 
 ```bash
+# Basic compression targeting 85.0 quality score
 press-it input.png 85.0
-```
 
-This compresses `input.png` targeting a perceptual quality of 85.0 SSIM, automatically selecting the format that provides the smallest file size at that quality level.
+# Resize during compression
+press-it input.png 85.0 --resize 800x600
+
+# Specify output directory
+press-it input.png 85.0 --output /path/to/output
+
+# Show detailed information during compression
+press-it input.png 85.0 --verbose
+
+# Show version information
+press-it --version
+```
 
 #### Options
 
 ```
-usage: press-it [-h] [--version] [--resize RESIZE] [-o OUTPUT] input_image target_ssim
+usage: press-it [-h] [--version] [--resize RESIZE] [--output OUTPUT] [--verbose] input_image target_ssim
 
 positional arguments:
   input_image           Path to source image file
@@ -57,11 +68,12 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
-  --version             show program's version number and exit
+  --version, -V         show program's version number and exit
   --resize RESIZE, -r RESIZE
                         Resize the image (width)x(height). If one dimension is not set, the aspect ratio is respected
-  -o OUTPUT, --output OUTPUT
+  --output OUTPUT, -o OUTPUT
                         Output directory. If not provided, uses current directory
+  --verbose, -v         Show detailed progress information during compression
 ```
 
 ## Benchmarking Tool
@@ -84,6 +96,12 @@ press-benchmark --num-images 20 --quality-min 20 --quality-max 90
 
 # Continuous benchmark (runs until stopped with Ctrl+C)
 press-benchmark --temp-dir ./my_benchmark_files
+
+# Show detailed information during benchmark
+press-benchmark --num-images 10 --verbose
+
+# Show version information
+press-benchmark --version
 ```
 
 The benchmark process:
@@ -97,7 +115,7 @@ The benchmark process:
 
 ```
 usage: press-benchmark [-h] [--num-images NUM_IMAGES] [--output OUTPUT] [--temp-dir TEMP_DIR] 
-                      [--quality-min QUALITY_MIN] [--quality-max QUALITY_MAX] [--version]
+                      [--quality-min QUALITY_MIN] [--quality-max QUALITY_MAX] [--verbose] [--version]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -111,7 +129,8 @@ optional arguments:
                         Minimum quality value to test (5-100) (default: 5)
   --quality-max QUALITY_MAX
                         Maximum quality value to test (5-100) (default: 95)
-  --version             show program's version number and exit
+  --verbose, -v         Show detailed progress information during benchmark
+  --version, -V         show program's version number and exit
 ```
 
 ### Benchmark Results
