@@ -8,6 +8,7 @@ A tool to compress images with formats targeting a specific perceptual quality.
 - Uses SSIMULACRA2 for perceptual quality measurement
 - Employs binary search to find the optimal compression parameters
 - Command-line interface for easy integration into scripts and workflows
+- Includes a benchmark tool for comparing image formats at different quality levels
 
 ## Installation
 
@@ -35,13 +36,15 @@ pip install press-it
 
 ## Usage
 
+### Image Compression
+
 ```bash
 press-it input.png 85.0
 ```
 
 This will create a compressed version of `input.png` with a perceptual quality of about 85.0 SSIM. The tool automatically selects the format that gives the smallest file size while meeting the quality target.
 
-### Options
+#### Options
 
 ```
 usage: press-it [-h] [--version] [--resize RESIZE] [-o OUTPUT] input_image target_ssim
@@ -61,13 +64,55 @@ optional arguments:
                         Output directory. If not provided, uses current directory
 ```
 
+### Benchmarking Tool
+
+The library includes a benchmarking tool that allows you to compare different image formats (JPEG, WebP, AVIF) at various quality settings.
+
+```bash
+press-benchmark --num-images 10 --output benchmark-results.csv
+```
+
+This will download 10 random test images, compress them with different formats and quality settings, and evaluate them using various SSIMULACRA2 implementations.
+
+#### Benchmark Options
+
+```
+usage: press-benchmark [-h] [--num-images NUM_IMAGES] [--output OUTPUT] [--temp-dir TEMP_DIR] [--quality-min QUALITY_MIN] [--quality-max QUALITY_MAX] [--version]
+
+Benchmark different compression formats with SSIMULACRA2
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --num-images NUM_IMAGES, -n NUM_IMAGES
+                        Number of images to process (0 for infinite until Ctrl+C) (default: 0)
+  --output OUTPUT, -o OUTPUT
+                        Output CSV file path (default: auto-generated in benchmark_results directory) (default: None)
+  --temp-dir TEMP_DIR, -t TEMP_DIR
+                        Directory to store temporary files during benchmark (default: ./benchmark_temp)
+  --quality-min QUALITY_MIN
+                        Minimum quality value to test (5-100) (default: 5)
+  --quality-max QUALITY_MAX
+                        Maximum quality value to test (5-100) (default: 95)
+  --version             show program's version number and exit
+```
+
 ## How It Works
+
+### Main Compression Tool
 
 1. The input image is converted to PNG format for consistent quality measurement
 2. The tool tests compression with different formats (JPEG, WebP, AVIF, PNG)
 3. For each format, it performs a binary search to find the minimal quality setting that meets the target SSIM score
 4. The format with the smallest file size that meets the quality target is selected
 5. The optimized image is saved to the output directory
+
+### Benchmark Tool
+
+1. The benchmark tool downloads random images from Picsum Photos (or uses locally available images)
+2. It compresses each image using multiple formats with random quality settings
+3. The compressed images are then evaluated using different SSIMULACRA2 implementations
+4. Results are saved to a CSV file with quality scores, file sizes, and compression ratios
+5. This data can be used for further analysis and to improve the compression algorithm
 
 ## SSIM Score Interpretation
 
