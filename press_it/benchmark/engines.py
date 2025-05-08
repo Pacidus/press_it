@@ -44,9 +44,8 @@ def run_cpp_ssimulacra2(original_path, compressed_path):
         float: SSIMULACRA2 score or None if not available
     """
     try:
-        cmd = ["cmulacra2", original_path, compressed_path]
+        cmd = ["ssimulacra2", original_path, compressed_path]
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-
         if result.returncode != 0:
             if result.stderr:
                 print(f"C++ stderr: {result.stderr}")
@@ -61,7 +60,8 @@ def run_cpp_ssimulacra2(original_path, compressed_path):
             return None
 
     except FileNotFoundError:
-        print("C++ implementation (cmulacra2) not found in PATH")
+        print("C++ implementation (ssimulacra2) not found in PATH")
+        print(result)
         return None
     except Exception as e:
         print(f"Error with C++ implementation: {e}")
