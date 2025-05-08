@@ -37,6 +37,7 @@ dependencies = [
     "tqdm>=4.50.0",
     "ssimulacra2>=0.2.0",
     "Pillow>=8.0.0",
+    "requests>=2.25.0",
 ]
 
 [project.urls]
@@ -46,6 +47,7 @@ Source = "https://github.com/Pacidus/press_it"
 
 [project.scripts]
 press-it = "press_it.cli:main"
+press-benchmark = "press_it.benchmark_cli:main"
 
 [tool.hatch.version]
 path = "press_it/__init__.py"
