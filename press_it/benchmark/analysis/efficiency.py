@@ -29,6 +29,21 @@ def analyze_quality_vs_size(df, output_path=None):
         print("No valid quality scores available for analysis")
         return None
 
+    # Calculate compression ratio if not present
+    if (
+        "compression_ratio" not in df.columns
+        and "original_size" in df.columns
+        and "compressed_size" in df.columns
+    ):
+        df["compression_ratio"] = df.apply(
+            lambda row: (
+                row["original_size"] / row["compressed_size"]
+                if row["compressed_size"] > 0
+                else float("inf")
+            ),
+            axis=1,
+        )
+
     # Make a copy and make sure we have quality bins
     analysis_data = add_categorical_columns(df)
 
@@ -94,6 +109,21 @@ def analyze_efficiency_by_quality(df):
     if "quality_bin" not in df.columns or len(df) == 0:
         return {}
 
+    # Ensure compression_ratio is available
+    if "compression_ratio" not in df.columns:
+        # Calculate it if we have the component values
+        if "original_size" in df.columns and "compressed_size" in df.columns:
+            df["compression_ratio"] = df.apply(
+                lambda row: (
+                    row["original_size"] / row["compressed_size"]
+                    if row["compressed_size"] > 0
+                    else float("inf")
+                ),
+                axis=1,
+            )
+        else:
+            return {}
+
     # Find most efficient format for each quality bin
     best_formats = {}
 
@@ -126,8 +156,25 @@ def analyze_image_factors(df):
     if len(df) < 5:
         return {}
 
-    # Make sure we have categorical columns
+    # Make sure we have categorical columns and compression_ratio
     analysis_data = add_categorical_columns(df)
+
+    # Ensure compression_ratio is calculated
+    if "compression_ratio" not in analysis_data.columns:
+        if (
+            "original_size" in analysis_data.columns
+            and "compressed_size" in analysis_data.columns
+        ):
+            analysis_data["compression_ratio"] = analysis_data.apply(
+                lambda row: (
+                    row["original_size"] / row["compressed_size"]
+                    if row["compressed_size"] > 0
+                    else float("inf")
+                ),
+                axis=1,
+            )
+        else:
+            return {}
 
     # Analyze by size category
     if "size_category" not in analysis_data.columns:
@@ -175,6 +222,20 @@ def analyze_compression_vs_format(df):
     """
     if len(df) < 5 or "compression_type" not in df.columns:
         return {}
+
+    # Ensure compression_ratio is calculated
+    if "compression_ratio" not in df.columns:
+        if "original_size" in df.columns and "compressed_size" in df.columns:
+            df["compression_ratio"] = df.apply(
+                lambda row: (
+                    row["original_size"] / row["compressed_size"]
+                    if row["compressed_size"] > 0
+                    else float("inf")
+                ),
+                axis=1,
+            )
+        else:
+            return {}
 
     # Group by format and calculate statistics
     format_stats = (

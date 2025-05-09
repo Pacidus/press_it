@@ -5,7 +5,7 @@ import time
 import signal
 import shutil
 import tempfile
-import random  # Added missing import
+import random
 import pandas as pd
 from pathlib import Path
 import atexit
@@ -212,21 +212,16 @@ class BenchmarkRunner:
         print(f"C++ score: {cpp_score or 'N/A'}")
         print(f"Rust score: {rust_score or 'N/A'}")
 
-        # Return result
+        # Return result with minimal data (removed timestamp, paths, and compression_ratio)
         return {
-            "timestamp": pd.Timestamp.now(),
             "press_it_version": PRESS_IT_VERSION,
             "python_ssimulacra2_version": PYTHON_SSIMULACRA2_VERSION,
             "cpp_ssimulacra2_version": CPP_SSIMULACRA2_VERSION,
             "rust_ssimulacra2_version": RUST_SSIMULACRA2_VERSION,
-            "original_path": str(original_path),
-            "compressed_path": str(compressed_path),
-            "decoded_path": str(decoded_path),
             "width": width,
             "height": height,
             "original_size": original_size,
             "compressed_size": compressed_size,
-            "compression_ratio": compression_ratio,
             "compression_type": compression_type,
             "quality": quality,
             "python_score": python_score,
@@ -262,8 +257,12 @@ class BenchmarkRunner:
                 combined_df.to_parquet(
                     self.output_file,
                     engine="pyarrow",
-                    compression="snappy",
+                    compression="zstd",  # Use zstd compression for better ratio
+                    compression_level=9,  # Maximum compression level
                     index=False,
+                    use_dictionary=True,  # Enable dictionary encoding
+                    coerce_timestamps="ms",  # Timestamp precision optimization
+                    allow_truncated_timestamps=True,
                 )
 
             except Exception as e:
@@ -272,13 +271,24 @@ class BenchmarkRunner:
                 new_results_df.to_parquet(
                     self.output_file,
                     engine="pyarrow",
-                    compression="snappy",
+                    compression="zstd",
+                    compression_level=9,
                     index=False,
+                    use_dictionary=True,
+                    coerce_timestamps="ms",
+                    allow_truncated_timestamps=True,
                 )
         else:
             # Create new file
             new_results_df.to_parquet(
-                self.output_file, engine="pyarrow", compression="snappy", index=False
+                self.output_file,
+                engine="pyarrow",
+                compression="zstd",
+                compression_level=9,
+                index=False,
+                use_dictionary=True,
+                coerce_timestamps="ms",
+                allow_truncated_timestamps=True,
             )
 
         print(f"Results saved to {self.output_file}")

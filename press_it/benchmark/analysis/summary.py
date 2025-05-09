@@ -17,6 +17,21 @@ def summarize_benchmark_data(df):
     Returns:
         dict: Summary statistics
     """
+    # Calculate compression_ratio if not present
+    if (
+        "compression_ratio" not in df.columns
+        and "original_size" in df.columns
+        and "compressed_size" in df.columns
+    ):
+        df["compression_ratio"] = df.apply(
+            lambda row: (
+                row["original_size"] / row["compressed_size"]
+                if row["compressed_size"] > 0
+                else float("inf")
+            ),
+            axis=1,
+        )
+
     # Add categorical columns
     df = add_categorical_columns(df)
 

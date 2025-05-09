@@ -40,6 +40,18 @@ def load_benchmark_data(file_path):
     try:
         df = pd.read_parquet(file_path)
         print(f"Loaded {len(df)} rows from {file_path}")
+
+        # Calculate compression_ratio for analysis
+        if "original_size" in df.columns and "compressed_size" in df.columns:
+            df["compression_ratio"] = df.apply(
+                lambda row: (
+                    row["original_size"] / row["compressed_size"]
+                    if row["compressed_size"] > 0
+                    else float("inf")
+                ),
+                axis=1,
+            )
+
         return df
     except Exception as e:
         print(f"Error loading benchmark data: {e}")
@@ -60,31 +72,36 @@ def combine_benchmark_files(file_paths, output_path=None):
 
     for file_path in file_paths:
         try:
-            df = pd.read_parquet(file_path)
-            print(f"Adding {len(df)} rows from {file_path}")
-            combined_df = pd.concat([combined_df, df], ignore_index=True)
+            df = load_benchmark_data(file_path)
+            if df is not None:
+                print(f"Adding {len(df)} rows from {file_path}")
+                combined_df = pd.concat([combined_df, df], ignore_index=True)
         except Exception as e:
             print(f"Error loading {file_path}: {e}")
 
     # Deduplicate if needed
     if len(combined_df) > 0:
         before_count = len(combined_df)
-        combined_df = combined_df.drop_duplicates(
-            subset=["original_path", "compressed_path"]
-        )
+
+        # Use hash-based deduplication to avoid needing specific columns
+        combined_df = combined_df.drop_duplicates()
         after_count = len(combined_df)
 
         if before_count > after_count:
             print(f"Removed {before_count - after_count} duplicate entries")
 
-        # Sort by timestamp if available
-        if "timestamp" in combined_df.columns:
-            combined_df = combined_df.sort_values("timestamp")
-
         # Save combined data if requested
         if output_path:
+            # Save with optimal settings
             combined_df.to_parquet(
-                output_path, engine="pyarrow", compression="snappy", index=False
+                output_path,
+                engine="pyarrow",
+                compression="zstd",
+                compression_level=9,
+                index=False,
+                use_dictionary=True,
+                coerce_timestamps="ms",
+                allow_truncated_timestamps=True,
             )
             print(f"Saved combined data ({len(combined_df)} rows) to {output_path}")
 
@@ -121,6 +138,21 @@ def add_categorical_columns(df):
             result["python_score"],
             bins=[0, 60, 70, 80, 90, 100],
             labels=["0-60", "60-70", "70-80", "80-90", "90-100"],
+        )
+
+    # Calculate compression_ratio if not present
+    if (
+        "compression_ratio" not in result.columns
+        and "original_size" in result.columns
+        and "compressed_size" in result.columns
+    ):
+        result["compression_ratio"] = result.apply(
+            lambda row: (
+                row["original_size"] / row["compressed_size"]
+                if row["compressed_size"] > 0
+                else float("inf")
+            ),
+            axis=1,
         )
 
     return result
