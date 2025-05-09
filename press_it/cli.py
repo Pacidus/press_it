@@ -44,7 +44,7 @@ def main():
     parser.add_argument("input_image", help="Path to source image file")
     parser.add_argument("target_ssim", type=float, help="Target SSIM value (0-100)")
     parser.add_argument(
-        "--version", action="version", version=f"press-it {__version__}"
+        "--version", "-V", action="version", version=f"press-it {__version__}"
     )
     parser.add_argument(
         "--resize",
@@ -56,10 +56,16 @@ def main():
         ),
     )
     parser.add_argument(
-        "-o",
         "--output",
+        "-o",
         type=str,
         help="Output directory. If not provided, uses current directory",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed progress information during compression",
     )
 
     args = parser.parse_args()
@@ -77,10 +83,16 @@ def main():
     # Create optimized versions with different encoders and find the best
     results = {}
 
+    if args.verbose:
+        print(f"Processing image: {args.input_image}")
+        print(f"Target SSIM quality: {args.target_ssim}")
+
     with tempfile.TemporaryDirectory() as temp_dir:
         # Convert input to PNG for consistent comparison
         reference_png = os.path.join(temp_dir, "reference.png")
         try:
+            if args.verbose:
+                print("Converting image to reference format...")
             subprocess.run(
                 ["magick", args.input_image, "-alpha", "off", reference_png],
                 check=True,
@@ -93,6 +105,8 @@ def main():
 
         if args.resize:
             try:
+                if args.verbose:
+                    print(f"Resizing image to {args.resize}...")
                 resize_image(reference_png, args.resize)
             except subprocess.CalledProcessError as e:
                 print(f"Error resizing image: {e}", file=sys.stderr)
@@ -109,6 +123,8 @@ def main():
         try:
             base_name = os.path.splitext(os.path.basename(args.input_image))[0]
             png_output = os.path.join(temp_dir, f"{base_name}_100.png")
+            if args.verbose:
+                print("Optimizing with PNG...")
             subprocess.run(
                 ["pngcrush", reference_png, png_output],
                 check=True,
@@ -127,6 +143,8 @@ def main():
         # Process through all other encoders
         for name, encoder in encoders.items():
             try:
+                if args.verbose:
+                    print(f"Optimizing with {name}...")
                 quality, size = encoder(
                     reference_png, temp_dir, args.target_ssim, args.input_image
                 )
@@ -146,6 +164,11 @@ def main():
         # Determine best format by size
         best_format = min(results, key=lambda x: results[x]["size"])
         best_result = results[best_format]
+
+        if args.verbose:
+            print(
+                f"Best format identified: {best_format} with quality {best_result['quality']}"
+            )
 
         # Set output directory
         output_dir = "./"
@@ -171,6 +194,8 @@ def main():
         if os.path.exists(output_path):
             os.remove(output_path)
         try:
+            if args.verbose:
+                print(f"Saving optimized image to: {output_path}")
             shutil.copy2(source_path, output_path)
         except Exception as e:
             print(f"Error saving output file: {e}", file=sys.stderr)

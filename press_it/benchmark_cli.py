@@ -8,6 +8,11 @@ from pathlib import Path
 from press_it import __version__
 from press_it.utils import check_dependencies
 from press_it.benchmark.core import BenchmarkRunner
+from press_it.benchmark.engines import (
+    PYTHON_SSIMULACRA2_VERSION,
+    CPP_SSIMULACRA2_VERSION,
+    RUST_SSIMULACRA2_VERSION,
+)
 
 
 # Required system dependencies for the benchmark
@@ -40,16 +45,16 @@ def main():
         "--output",
         "-o",
         type=str,
-        default=None,
-        help="Output CSV file path (default: auto-generated in benchmark_results directory)",
+        default="ssimulacra2_benchmark.parquet",
+        help="Output Parquet file path",
     )
 
     parser.add_argument(
         "--temp-dir",
         "-t",
         type=str,
-        default="./benchmark_temp",
-        help="Directory to store temporary files during benchmark",
+        default=None,
+        help="Directory to store temporary files during benchmark (default: auto-generated system temp dir)",
     )
 
     parser.add_argument(
@@ -67,9 +72,29 @@ def main():
     )
 
     parser.add_argument(
+        "--keep-images",
+        "-k",
+        action="store_true",
+        help="Keep temporary image files after benchmark (default: delete)",
+    )
+
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed progress information during benchmark",
+    )
+
+    parser.add_argument(
         "--version",
+        "-V",
         action="version",
-        version=f"press-benchmark {__version__}",
+        version=(
+            f"press-benchmark {__version__}\n"
+            f"Python SSIMULACRA2: {PYTHON_SSIMULACRA2_VERSION or 'Not available'}\n"
+            f"C++ SSIMULACRA2: {CPP_SSIMULACRA2_VERSION or 'Not available'}\n"
+            f"Rust SSIMULACRA2: {RUST_SSIMULACRA2_VERSION or 'Not available'}"
+        ),
     )
 
     args = parser.parse_args()
@@ -81,9 +106,6 @@ def main():
         print(str(e), file=sys.stderr)
         return 1
 
-    # Ensure temp directory exists
-    os.makedirs(args.temp_dir, exist_ok=True)
-
     # Run the benchmark
     try:
         print(f"Starting benchmark with {args.num_images or 'infinite'} images...")
@@ -92,6 +114,8 @@ def main():
             temp_dir=args.temp_dir,
             quality_min=args.quality_min,
             quality_max=args.quality_max,
+            verbose=args.verbose,
+            keep_images=args.keep_images,
         )
 
         num_processed = benchmark.run(num_images=args.num_images)
