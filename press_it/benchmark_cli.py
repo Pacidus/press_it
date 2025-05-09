@@ -8,6 +8,11 @@ from pathlib import Path
 from press_it import __version__
 from press_it.utils import check_dependencies
 from press_it.benchmark.core import BenchmarkRunner
+from press_it.benchmark.engines import (
+    PYTHON_SSIMULACRA2_VERSION,
+    CPP_SSIMULACRA2_VERSION,
+    RUST_SSIMULACRA2_VERSION,
+)
 
 
 # Required system dependencies for the benchmark
@@ -41,7 +46,7 @@ def main():
         "-o",
         type=str,
         default=None,
-        help="Output CSV file path (default: auto-generated in benchmark_results directory)",
+        help="Output Parquet file path (default: ./benchmark_results/ssimulacra2_benchmark.parquet, data always appended)",
     )
 
     parser.add_argument(
@@ -67,6 +72,13 @@ def main():
     )
 
     parser.add_argument(
+        "--keep-images",
+        "-k",
+        action="store_true",
+        help="Keep temporary image files after benchmark (default: delete)",
+    )
+
+    parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
@@ -77,7 +89,12 @@ def main():
         "--version",
         "-V",
         action="version",
-        version=f"press-benchmark {__version__}",
+        version=(
+            f"press-benchmark {__version__}\n"
+            f"Python SSIMULACRA2: {PYTHON_SSIMULACRA2_VERSION or 'Not available'}\n"
+            f"C++ SSIMULACRA2: {CPP_SSIMULACRA2_VERSION or 'Not available'}\n"
+            f"Rust SSIMULACRA2: {RUST_SSIMULACRA2_VERSION or 'Not available'}"
+        ),
     )
 
     args = parser.parse_args()
@@ -101,6 +118,7 @@ def main():
             quality_min=args.quality_min,
             quality_max=args.quality_max,
             verbose=args.verbose,
+            keep_images=args.keep_images,
         )
 
         num_processed = benchmark.run(num_images=args.num_images)
