@@ -45,16 +45,16 @@ def main():
         "--output",
         "-o",
         type=str,
-        default=None,
-        help="Output Parquet file path (default: ./benchmark_results/ssimulacra2_benchmark.parquet, data always appended)",
+        default="ssimulacra2_benchmark.parquet",
+        help="Output Parquet file path",
     )
 
     parser.add_argument(
         "--temp-dir",
         "-t",
         type=str,
-        default="./benchmark_temp",
-        help="Directory to store temporary files during benchmark",
+        default=None,
+        help="Directory to store temporary files during benchmark (default: auto-generated system temp dir)",
     )
 
     parser.add_argument(
@@ -105,9 +105,6 @@ def main():
     except Exception as e:
         print(str(e), file=sys.stderr)
         return 1
-
-    # Ensure temp directory exists
-    os.makedirs(args.temp_dir, exist_ok=True)
 
     # Run the benchmark
     try:

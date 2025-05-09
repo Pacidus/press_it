@@ -5,6 +5,7 @@ import time
 import random
 import signal
 import shutil
+import tempfile
 import pandas as pd
 from pathlib import Path
 import atexit
@@ -60,29 +61,30 @@ class BenchmarkRunner:
         if self.quality_min > self.quality_max:
             self.quality_min, self.quality_max = self.quality_max, self.quality_min
 
-        # Set up directories
-        self.temp_dir = Path(temp_dir or "./benchmark_temp")
-        self.results_dir = Path(self.temp_dir.parent / "benchmark_results")
+        # Create a temp directory that will be auto-cleaned
+        if temp_dir:
+            # Use user-specified temp dir but don't clean it
+            self.temp_dir = Path(temp_dir)
+            self.auto_clean_temp = False
+        else:
+            # Create a system temporary directory that auto-cleans
+            self.system_temp_dir = tempfile.TemporaryDirectory(
+                prefix="press_it_benchmark_"
+            )
+            self.temp_dir = Path(self.system_temp_dir.name)
+            self.auto_clean_temp = True
+
+        # Set up paths within the temp directory
         self.original_image_dir = self.temp_dir / "originals"
         self.compressed_image_dir = self.temp_dir / "compressed"
         self.decoded_dir = self.temp_dir / "decoded"
 
-        # Create directories if they don't exist
-        for dir_path in [
-            self.temp_dir,
-            self.results_dir,
-        ]:
-            dir_path.mkdir(parents=True, exist_ok=True)
-
-        # Only create image directories when needed
-        # This avoids creating empty directories
-
-        # Set up output file
+        # Set up output file path without creating directories
         if output_file:
             self.output_file = Path(output_file)
         else:
-            # Default output file - no timestamp, just a fixed name for easier automation
-            self.output_file = self.results_dir / "ssimulacra2_benchmark.parquet"
+            # Default output file in current directory
+            self.output_file = Path("ssimulacra2_benchmark.parquet")
 
         # Results storage
         self.results = []
@@ -92,7 +94,7 @@ class BenchmarkRunner:
         signal.signal(signal.SIGINT, self._signal_handler)
 
         # Set up cleanup handler for temporary files
-        if not self.keep_images:
+        if not self.keep_images and not self.auto_clean_temp:
             atexit.register(self._cleanup_temp_files)
 
     def _signal_handler(self, sig, frame):
@@ -105,7 +107,7 @@ class BenchmarkRunner:
         if self.verbose:
             print("Cleaning up temporary image files...")
 
-        # Only remove temp image directories, keep the parquet file
+        # Only remove temp image directories if they exist
         try:
             if self.original_image_dir.exists():
                 shutil.rmtree(self.original_image_dir)
@@ -113,6 +115,9 @@ class BenchmarkRunner:
                 shutil.rmtree(self.compressed_image_dir)
             if self.decoded_dir.exists():
                 shutil.rmtree(self.decoded_dir)
+            # Try to remove the temp dir itself if it's empty
+            if self.temp_dir.exists() and not any(self.temp_dir.iterdir()):
+                os.rmdir(self.temp_dir)
         except Exception as e:
             print(f"Error during cleanup: {e}")
 
@@ -125,6 +130,10 @@ class BenchmarkRunner:
         Returns:
             tuple: (compressed_path, decoded_path, compression_type, quality)
         """
+        # Ensure compressed and decoded directories exist
+        self.compressed_image_dir.mkdir(parents=True, exist_ok=True)
+        self.decoded_dir.mkdir(parents=True, exist_ok=True)
+
         # Choose a random encoder
         encoder_funcs = [encode_mozjpeg, encode_webp, encode_avif]
         encoder = random.choice(encoder_funcs)
@@ -253,6 +262,10 @@ class BenchmarkRunner:
             print("No results to save.")
             return
 
+        # Ensure the parent directory exists if needed
+        if self.output_file.parent != Path("."):
+            self.output_file.parent.mkdir(parents=True, exist_ok=True)
+
         # Convert results to DataFrame
         new_results_df = pd.DataFrame(self.results)
 
@@ -313,7 +326,8 @@ class BenchmarkRunner:
         print(
             f"Starting SSIMULACRA2 benchmark. {'Press Ctrl+C to stop' if infinite_mode else f'Processing {num_images} images'}."
         )
-        print(f"Results will be saved to and appended to: {self.output_file}")
+        print(f"Results will be saved to: {self.output_file}")
+        print(f"Using temporary directory: {self.temp_dir}")
 
         # Print version information
         print("\nImplementation Versions:")
@@ -332,9 +346,6 @@ class BenchmarkRunner:
             print(f"Quality range: {self.quality_min} to {self.quality_max}")
             print(f"Verbose mode: Enabled")
             print(f"Keep images after benchmark: {self.keep_images}")
-            print(f"Images will be saved to: {self.original_image_dir}")
-            print(f"Compressed versions will be saved to: {self.compressed_image_dir}")
-            print(f"Decoded images will be saved to: {self.decoded_dir}")
 
         try:
             image_count = 0
@@ -402,5 +413,12 @@ class BenchmarkRunner:
                 print(f"\nBenchmark complete. Processed {image_count} images in total.")
             else:
                 print("\nNo results collected.")
+
+            # Clean up temp directory if we created it
+            if self.auto_clean_temp:
+                try:
+                    self.system_temp_dir.cleanup()
+                except Exception as e:
+                    print(f"Error cleaning up temporary directory: {e}")
 
             return image_count
