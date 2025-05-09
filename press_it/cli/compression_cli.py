@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+import shutil
 from pathlib import Path
 
 from press_it import __version__
@@ -102,18 +103,19 @@ def run_compression(args):
         print(f"Input file not found: {args.input_image}", file=sys.stderr)
         return 1
 
-    # Check if output is a directory or file
+    # Determine output path (directory or specific file)
     output_dir = None
+    output_file = None
     if args.output:
-        if os.path.isdir(args.output) or args.output.endswith("/"):
+        if os.path.isdir(args.output) or args.output.endswith(("/", "\\")):
+            # It's a directory
             output_dir = args.output
         else:
-            # If output has an extension, assume it's a file path
+            # Specific output file
             output_dir = os.path.dirname(args.output)
-
-            # If no directory part, use current directory
-            if not output_dir:
-                output_dir = "./"
+            if not output_dir:  # If there's no directory part, use current dir
+                output_dir = "."
+            output_file = os.path.basename(args.output)
 
     try:
         print(f"Processing: {args.input_image}")
@@ -134,6 +136,12 @@ def run_compression(args):
             resize=args.resize,
             keep_temp=args.keep_temp,
         )
+
+        # If a specific output file was requested, rename the result
+        if output_file:
+            output_path = os.path.join(output_dir, output_file)
+            shutil.move(result["output_path"], output_path)
+            result["output_path"] = output_path
 
         print("\nOptimization complete!")
         print(f"  Best format: {result['format']} (quality: {result['quality']})")

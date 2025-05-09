@@ -69,21 +69,41 @@ def compress_with_target_quality(
         # Create optimizer for all formats
         optimize = optimize_all_formats(compute_ssimulacra2_with_alpha, formats)
 
-        # Find best format
+        # Get base name and create a path for optimizer
+        base_name = os.path.splitext(os.path.basename(input_path))[0]
+
+        # Find best format within the temporary directory
         result = optimize(
             reference_png,
             target_ssim,
-            output_dir,
-            os.path.splitext(os.path.basename(input_path))[0],
+            temp_dir,  # Use temp_dir for all intermediate files
+            base_name,
         )
 
-        # If output_dir was provided, make sure the final file is copied there
-        if output_dir and os.path.dirname(result["output_path"]) != output_dir:
+        # Determine the final output path
+        if output_dir:
+            # Make sure the output directory exists
             os.makedirs(output_dir, exist_ok=True)
-            final_path = os.path.join(
-                output_dir, os.path.basename(result["output_path"])
-            )
+
+            # Create the final output path with proper extension
+            format_ext = os.path.splitext(result["output_path"])[1]
+            final_path = os.path.join(output_dir, f"{base_name}{format_ext}")
+
+            # Copy just the final optimized file to the output directory
             shutil.copy2(result["output_path"], final_path)
+
+            # Update the result with the new path
+            result["output_path"] = final_path
+        else:
+            # If no output_dir specified, copy to the same directory as input
+            input_dir = os.path.dirname(os.path.abspath(input_path))
+            format_ext = os.path.splitext(result["output_path"])[1]
+            final_path = os.path.join(input_dir, f"{base_name}_optimized{format_ext}")
+
+            # Copy the final result
+            shutil.copy2(result["output_path"], final_path)
+
+            # Update the result with the new path
             result["output_path"] = final_path
 
         # Keep temporary files if requested
