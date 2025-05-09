@@ -1,5 +1,6 @@
 """Benchmark module for press_it."""
 
+# Import from engines module
 from press_it.benchmark.engines import (
     PYTHON_SSIMULACRA2_AVAILABLE,
     CPP_SSIMULACRA2_AVAILABLE,
@@ -14,6 +15,7 @@ from press_it.benchmark.engines import (
     run_all_implementations,
 )
 
+# Import from image module
 from press_it.benchmark.image import (
     download_image,
     get_random_image,
@@ -21,8 +23,17 @@ from press_it.benchmark.image import (
     encode_random_format,
 )
 
+# Import from runner module
 from press_it.benchmark.runner import BenchmarkRunner
 
+# Import from main module
+from press_it.benchmark.main import (
+    run_benchmark,
+    analyze_benchmark,
+    interactive_benchmark,
+)
+
+# Import from analysis module
 from press_it.benchmark.analysis import (
     find_benchmark_files,
     load_benchmark_data,
@@ -35,6 +46,32 @@ from press_it.benchmark.analysis import (
     analyze_image_factors,
     generate_benchmark_report,
 )
+
+# Try to import visualization module (optional)
+try:
+    from press_it.benchmark.analysis.visualization import (
+        check_visualization_available,
+        plot_quality_vs_compression,
+        plot_format_comparison,
+        plot_implementation_comparison,
+        plot_quality_distribution,
+        create_dashboard,
+    )
+
+    # Add visualization functions to __all__
+    _viz_exports = [
+        "check_visualization_available",
+        "plot_quality_vs_compression",
+        "plot_format_comparison",
+        "plot_implementation_comparison",
+        "plot_quality_distribution",
+        "create_dashboard",
+    ]
+    VISUALIZATION_AVAILABLE = True
+
+except ImportError:
+    VISUALIZATION_AVAILABLE = False
+    _viz_exports = []
 
 # Define what's available when doing "from press_it.benchmark import *"
 __all__ = [
@@ -57,6 +94,10 @@ __all__ = [
     "encode_random_format",
     # Benchmark runner
     "BenchmarkRunner",
+    # Main benchmark functions
+    "run_benchmark",
+    "analyze_benchmark",
+    "interactive_benchmark",
     # Analysis
     "find_benchmark_files",
     "load_benchmark_data",
@@ -68,4 +109,6 @@ __all__ = [
     "analyze_encoder_consistency",
     "analyze_image_factors",
     "generate_benchmark_report",
-]
+    # Visualization availability flag
+    "VISUALIZATION_AVAILABLE",
+] + _viz_exports

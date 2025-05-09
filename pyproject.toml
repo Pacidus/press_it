@@ -30,7 +30,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
-    "License :: OSI Approved :: BSD License",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Topic :: Multimedia :: Graphics",
 ]
 dependencies = [
@@ -48,8 +48,8 @@ Issues = "https://github.com/Pacidus/press_it/issues"
 Source = "https://github.com/Pacidus/press_it"
 
 [project.scripts]
-press-it = "press_it.cli:main"
-press-benchmark = "press_it.benchmark_cli:main"
+press-it = "press_it.cli.compression_cli:main"
+press-benchmark = "press_it.cli.benchmark_cli:main"
 
 [tool.hatch.version]
 path = "press_it/__init__.py"
