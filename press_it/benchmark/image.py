@@ -2,282 +2,202 @@
 
 import os
 import random
-import subprocess
 import tempfile
 from pathlib import Path
 
 import requests
 from PIL import Image
 
+from press_it.utils.image import (
+    convert_image,
+    create_blank_image,
+    create_gradient_image,
+)
+from press_it.utils.subprocess_utils import run_command, with_error_handling
 
-def get_random_image(output_dir, image_id=None, verbose=False):
-    """Download a random image from Picsum Photos with random dimensions.
+
+def download_image(output_path, width=None, height=None, grayscale=False, timeout=10):
+    """Download a random image from Picsum Photos.
 
     Args:
-        output_dir (Path): Directory to save the downloaded image
-        image_id (int, optional): Image identifier for naming
-        verbose (bool): Whether to show detailed progress information
+        output_path: Where to save the downloaded image
+        width: Desired image width (default: random)
+        height: Desired image height (default: random)
+        grayscale: Whether to download grayscale image
+        timeout: Download timeout in seconds
 
     Returns:
-        str: Path to the downloaded or fallback image
+        str: Path to the downloaded image
     """
-    # Create output directory if it doesn't exist
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Create output directory if needed
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    image_id_str = (
-        f"image_{image_id:04d}"
-        if image_id is not None
-        else f"image_{random.randint(0, 9999):04d}"
-    )
-    output_path = output_dir / f"{image_id_str}.png"
-
-    # Skip download if file already exists (from a previous run)
-    if output_path.exists():
-        if verbose:
-            print(f"Using existing image: {output_path}")
-        return str(output_path)
-
-    try:
-        # Get a random image with random dimensions
+    # Use random dimensions if not specified
+    if width is None:
         width = random.choice([800, 1024, 1280, 1600])
+    if height is None:
         height = random.choice([600, 768, 960, 1200])
 
-        if verbose:
-            print(f"Downloading new image ({width}x{height})...")
+    # Build URL
+    image_url = f"https://picsum.photos/{width}/{height}"
+    if grayscale:
+        image_url += "?grayscale"
 
-        # Simple URL for random image with specified dimensions
-        image_url = f"https://picsum.photos/{width}/{height}"
-
-        response = requests.get(image_url, timeout=10)
+    # Download image
+    try:
+        response = requests.get(image_url, timeout=timeout)
         response.raise_for_status()
 
         # Create a temp file for the downloaded image
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_jpg_file:
-            temp_jpg = temp_jpg_file.name
-            temp_jpg_file.write(response.content)
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+            temp_jpg = temp_file.name
+            temp_file.write(response.content)
 
-        if verbose:
-            print(f"Converting image to PNG format...")
-
-        # Convert to PNG with alpha removed for consistent comparison
-        subprocess.run(
-            ["magick", temp_jpg, "-alpha", "off", str(output_path)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # Convert to PNG (for consistency)
+        convert_image(temp_jpg, output_path, ["-alpha", "off"])
 
         # Remove temporary file
         os.remove(temp_jpg)
 
-        print(f"Downloaded new image: {output_path} ({width}x{height})")
-        return str(output_path)
+        return output_path
 
     except Exception as e:
         print(f"Error downloading image: {e}")
+        # Create a fallback image
+        return create_gradient_image(output_path, width, height)
 
-        # If download fails, use a fallback local image if available
+
+def get_random_image(output_dir, image_id=None, verbose=False):
+    """Download a random image or create one if download fails.
+
+    Args:
+        output_dir: Directory to save the image
+        image_id: Optional ID for naming
+        verbose: Whether to show progress information
+
+    Returns:
+        str: Path to the image
+    """
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Generate image ID if not provided
+    if image_id is None:
+        image_id = random.randint(0, 9999)
+
+    image_id_str = f"image_{image_id:04d}"
+    output_path = os.path.join(output_dir, f"{image_id_str}.png")
+
+    # Skip download if file already exists
+    if os.path.exists(output_path):
+        if verbose:
+            print(f"Using existing image: {output_path}")
+        return output_path
+
+    if verbose:
+        print(f"Downloading new image...")
+
+    # Try to download a random image
+    try:
+        download_image(output_path)
+
+        if verbose:
+            img = Image.open(output_path)
+            print(f"Downloaded image: {output_path} ({img.width}x{img.height})")
+
+        return output_path
+
+    except Exception as e:
+        print(f"Failed to download image: {e}")
+
+        # Try to find a fallback image
         fallback_images = list(Path(output_dir).glob("*.png"))
         if fallback_images:
-            fallback_path = random.choice(fallback_images)
+            fallback_path = str(random.choice(fallback_images))
             print(f"Using fallback image: {fallback_path}")
-            return str(fallback_path)
+            return fallback_path
 
-        # If no fallback available, create a simple test image
-        try:
-            print("Creating a test image instead")
-            test_image = Image.new("RGB", (800, 600), color=(73, 109, 137))
-            test_image.save(output_path)
-            return str(output_path)
-        except Exception as e:
-            print(f"Failed to create test image: {e}")
-            raise
+        # If no fallback, create a test image
+        print("Creating a test image")
+        create_gradient_image(output_path, 800, 600)
+        return output_path
 
 
-def encode_mozjpeg(input_png, compressed_dir, decoded_dir, quality=None):
-    """Encode image to JPEG using MozJPEG.
+@with_error_handling
+def encode_with_format(input_png, output_dir, decoded_dir, format_name, quality=None):
+    """Encode an image with a specific format and quality.
 
     Args:
-        input_png (str): Path to input PNG image
-        compressed_dir (Path): Directory for compressed output
-        decoded_dir (Path): Directory for decoded output
-        quality (int, optional): Quality setting (default: random 5-95)
+        input_png: Path to input PNG
+        output_dir: Directory for compressed output
+        decoded_dir: Directory for decoded output
+        format_name: Format name (mozjpeg, webp, avif)
+        quality: Compression quality (default: random 5-95)
 
     Returns:
-        tuple: (compressed_path, decoded_path, encoder_type, quality)
+        tuple: (compressed_path, decoded_path, format_name, quality)
     """
-    # Create output directories if they don't exist
-    compressed_dir = Path(compressed_dir)
-    decoded_dir = Path(decoded_dir)
-    compressed_dir.mkdir(parents=True, exist_ok=True)
-    decoded_dir.mkdir(parents=True, exist_ok=True)
+    # Create output directories
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(decoded_dir, exist_ok=True)
 
-    img_path = Path(input_png)
-    image_id = img_path.stem
+    # Get base name without extension
+    base_name = os.path.splitext(os.path.basename(input_png))[0]
 
     # If quality is not provided, select randomly
     if quality is None:
         quality = random.randint(5, 95)
 
-    output_path = Path(compressed_dir) / f"{image_id}_mozjpeg_{quality}.jpg"
-    decoded_png = Path(decoded_dir) / f"{image_id}_mozjpeg_{quality}_decoded.png"
+    # Import encoder function from core
+    from press_it.core.encoders import get_encoder, get_extension
 
-    # Skip compression if file already exists (from a previous run)
-    if output_path.exists() and decoded_png.exists():
-        return str(output_path), str(decoded_png), "mozjpeg", quality
+    # Get encoder and extension
+    encoder = get_encoder(format_name)
+    extension = get_extension(format_name)
 
-    try:
-        # Compress using MozJPEG
-        subprocess.run(
-            [
-                "cjpeg",
-                "-quality",
-                str(quality),
-                "-outfile",
-                str(output_path),
-                input_png,
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    # Create output paths
+    output_path = os.path.join(
+        output_dir, f"{base_name}_{format_name}_{quality}.{extension}"
+    )
+
+    # Skip if file already exists
+    if os.path.exists(output_path):
+        decoded_path = os.path.join(
+            decoded_dir, f"{base_name}_{format_name}_{quality}_decoded.png"
         )
+        if os.path.exists(decoded_path):
+            return output_path, decoded_path, format_name, quality
 
-        # Decode back to PNG for consistent comparison
-        subprocess.run(
-            ["magick", str(output_path), str(decoded_png)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+    # Encode image
+    decoded_path = encoder(input_png, output_path, quality)
 
-        print(f"Compressed image: {output_path} (mozjpeg, quality={quality})")
-        return str(output_path), str(decoded_png), "mozjpeg", quality
+    # Rename decoded path to follow naming convention
+    new_decoded_path = os.path.join(
+        decoded_dir, f"{base_name}_{format_name}_{quality}_decoded.png"
+    )
+    if os.path.abspath(decoded_path) != os.path.abspath(new_decoded_path):
+        os.rename(decoded_path, new_decoded_path)
+        decoded_path = new_decoded_path
 
-    except Exception as e:
-        print(f"Error compressing image with MozJPEG: {e}")
-        raise
+    print(f"Compressed image: {output_path} ({format_name}, quality={quality})")
+    return output_path, decoded_path, format_name, quality
 
 
-def encode_webp(input_png, compressed_dir, decoded_dir, quality=None):
-    """Encode image to WebP format using cwebp.
+def encode_random_format(input_png, output_dir, decoded_dir, quality=None):
+    """Encode an image with a randomly selected format.
 
     Args:
-        input_png (str): Path to input PNG image
-        compressed_dir (Path): Directory for compressed output
-        decoded_dir (Path): Directory for decoded output
-        quality (int, optional): Quality setting (default: random 5-95)
+        input_png: Path to input PNG
+        output_dir: Directory for compressed output
+        decoded_dir: Directory for decoded output
+        quality: Compression quality (default: random 5-95)
 
     Returns:
-        tuple: (compressed_path, decoded_path, encoder_type, quality)
+        tuple: (compressed_path, decoded_path, format_name, quality)
     """
-    # Create output directories if they don't exist
-    compressed_dir = Path(compressed_dir)
-    decoded_dir = Path(decoded_dir)
-    compressed_dir.mkdir(parents=True, exist_ok=True)
-    decoded_dir.mkdir(parents=True, exist_ok=True)
+    # Choose a random format
+    formats = ["mozjpeg", "webp", "avif"]
+    format_name = random.choice(formats)
 
-    img_path = Path(input_png)
-    image_id = img_path.stem
-
-    # If quality is not provided, select randomly
-    if quality is None:
-        quality = random.randint(5, 95)
-
-    output_path = Path(compressed_dir) / f"{image_id}_webp_{quality}.webp"
-    decoded_png = Path(decoded_dir) / f"{image_id}_webp_{quality}_decoded.png"
-
-    # Skip compression if file already exists (from a previous run)
-    if output_path.exists() and decoded_png.exists():
-        return str(output_path), str(decoded_png), "webp", quality
-
-    try:
-        # Compress using cwebp
-        subprocess.run(
-            ["cwebp", "-m", "6", "-q", str(quality), input_png, "-o", str(output_path)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        # Decode back to PNG for consistent comparison
-        subprocess.run(
-            ["dwebp", str(output_path), "-o", str(decoded_png)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        print(f"Compressed image: {output_path} (webp, quality={quality})")
-        return str(output_path), str(decoded_png), "webp", quality
-
-    except Exception as e:
-        print(f"Error compressing image with WebP: {e}")
-        raise
-
-
-def encode_avif(input_png, compressed_dir, decoded_dir, quality=None):
-    """Encode image to AVIF format using avifenc.
-
-    Args:
-        input_png (str): Path to input PNG image
-        compressed_dir (Path): Directory for compressed output
-        decoded_dir (Path): Directory for decoded output
-        quality (int, optional): Quality setting (default: random 5-95)
-
-    Returns:
-        tuple: (compressed_path, decoded_path, encoder_type, quality)
-    """
-    # Create output directories if they don't exist
-    compressed_dir = Path(compressed_dir)
-    decoded_dir = Path(decoded_dir)
-    compressed_dir.mkdir(parents=True, exist_ok=True)
-    decoded_dir.mkdir(parents=True, exist_ok=True)
-
-    img_path = Path(input_png)
-    image_id = img_path.stem
-
-    # If quality is not provided, select randomly
-    if quality is None:
-        quality = random.randint(5, 95)
-
-    output_path = Path(compressed_dir) / f"{image_id}_avif_{quality}.avif"
-    decoded_png = Path(decoded_dir) / f"{image_id}_avif_{quality}_decoded.png"
-
-    # Skip compression if file already exists (from a previous run)
-    if output_path.exists() and decoded_png.exists():
-        return str(output_path), str(decoded_png), "avif", quality
-
-    try:
-        # Compress using avifenc
-        subprocess.run(
-            [
-                "avifenc",
-                "-q",
-                str(quality),
-                "-j",
-                "all",
-                "-s",
-                "0",
-                input_png,
-                str(output_path),
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        # Decode back to PNG for consistent comparison
-        subprocess.run(
-            ["avifdec", str(output_path), str(decoded_png)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        print(f"Compressed image: {output_path} (avif, quality={quality})")
-        return str(output_path), str(decoded_png), "avif", quality
-
-    except Exception as e:
-        print(f"Error compressing image with AVIF: {e}")
-        raise
+    # Encode with selected format
+    return encode_with_format(input_png, output_dir, decoded_dir, format_name, quality)

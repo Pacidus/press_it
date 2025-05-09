@@ -1,311 +1,346 @@
 """SSIMULACRA2 engine wrappers for press_it benchmarks."""
 
-import subprocess
 import re
-import importlib.metadata
-import sys
+import functools
 import tempfile
 from pathlib import Path
-from PIL import Image
+
+from press_it.utils.subprocess_utils import run_command, check_command_exists
+
+
+def try_import(module_name):
+    """Try to import a module, return None if not available."""
+    try:
+        module = __import__(module_name)
+        return module
+    except ImportError:
+        return None
+
 
 # Try to import the Python implementation of SSIMULACRA2
-try:
-    from ssimulacra2 import compute_ssimulacra2_with_alpha
-
-    SSIMULACRA2_AVAILABLE = True
-
-    # Try to get the version of the Python implementation
-    try:
-        # Try using importlib.metadata first (Python 3.8+)
-        PYTHON_SSIMULACRA2_VERSION = importlib.metadata.version("ssimulacra2")
-    except (importlib.metadata.PackageNotFoundError, AttributeError):
-        # Fallback: try to extract from module if available
-        try:
-            import ssimulacra2
-
-            if hasattr(ssimulacra2, "__version__"):
-                PYTHON_SSIMULACRA2_VERSION = ssimulacra2.__version__
-            else:
-                PYTHON_SSIMULACRA2_VERSION = "unknown"
-        except (ImportError, AttributeError):
-            PYTHON_SSIMULACRA2_VERSION = "unknown"
-except ImportError:
-    print(
-        "Warning: Could not import ssimulacra2 module. Python implementation will be skipped."
-    )
-    SSIMULACRA2_AVAILABLE = False
-    PYTHON_SSIMULACRA2_VERSION = None
+ssimulacra2 = try_import("ssimulacra2")
+PYTHON_SSIMULACRA2_AVAILABLE = ssimulacra2 is not None
 
 
-def get_cpp_ssimulacra2_version():
-    """Get the version of the C++ SSIMULACRA2 implementation.
+def get_version(executable, version_args=None, patterns=None, test_function=None):
+    """Generic function to get the version of a command-line tool.
+
+    Args:
+        executable: Name of the executable
+        version_args: Arguments to get version (default: --version)
+        patterns: List of regex patterns to extract version
+        test_function: Function to test functionality
 
     Returns:
         str: Version string or None if not available
     """
+    # Check if executable exists
+    if not check_command_exists(executable):
+        return None
+
+    # Set defaults
+    if version_args is None:
+        version_args = ["--version"]
+
+    if patterns is None:
+        patterns = [
+            r"(\d+\.\d+\.\d+)",  # Match x.y.z
+            r"(\d+\.\d+)",  # Match x.y
+            r"v?(\d+\.\d+)",  # Match vx.y
+        ]
+
+    # Try to get version
     try:
-        # Check if executable exists
-        which_result = subprocess.run(
-            ["which", "ssimulacra2"], capture_output=True, text=True, check=False
-        )
-        if which_result.returncode != 0:
-            return None
+        result = run_command([executable] + version_args, check=False, silent=True)
 
-        # Check basic functionality by running without arguments
-        # The version is in stderr for this implementation
-        version_result = subprocess.run(
-            ["ssimulacra2"], capture_output=True, text=True, check=False
-        )
+        # Check both stdout and stderr for version
+        output = result.stdout + "\n" + result.stderr
 
-        # Verify functionality with test images
-        functional = False
-        with tempfile.TemporaryDirectory() as temp_dir:
-            test_img1 = Path(temp_dir) / "test1.png"
-            test_img2 = Path(temp_dir) / "test2.png"
+        # Try each pattern
+        for pattern in patterns:
+            match = re.search(pattern, output)
+            if match:
+                # If test function provided, verify functionality
+                if test_function and not test_function(executable):
+                    return None
 
-            # Create white images
-            Image.new("RGB", (10, 10), color="white").save(test_img1)
-            Image.new("RGB", (10, 10), color="white").save(test_img2)
+                return match.group(1)
 
-            # Run test
-            test_result = subprocess.run(
-                ["ssimulacra2", str(test_img1), str(test_img2)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            # Check if it produced a valid score
-            if test_result.returncode == 0 and test_result.stdout.strip():
-                try:
-                    float(test_result.stdout.strip())
-                    functional = True
-                except ValueError:
-                    pass
-
-        if not functional:
-            return None  # Not working properly
-
-        # Extract version from stderr (based on diagnostic output)
-        if version_result.stderr:
-            # Look for pattern "SSIMULACRA 2.1 [AVX3_ZEN4,AVX3,AVX2,SSE4,SSSE3]"
-            lines = version_result.stderr.strip().split("\n")
-            if lines:
-                first_line = lines[0]
-                version_match = re.search(r"SSIMULACRA\s+(\d+\.\d+)", first_line)
-                if version_match:
-                    return version_match.group(1)
-
-        # It's working but version couldn't be determined
-        if functional:
+        # If no match but command exists
+        if test_function and test_function(executable):
             return "unknown"
-        return None
 
-    except Exception as e:
-        print(f"Error checking C++ SSIMULACRA2: {e}")
-        return None
+    except Exception:
+        pass
+
+    return None
 
 
-def get_rust_ssimulacra2_version():
-    """Get the version of the Rust SSIMULACRA2 implementation.
+def create_test_images():
+    """Create test images for functionality testing.
 
     Returns:
-        str: Version string or None if not available
+        tuple: (path1, path2) - Paths to two test images
+    """
+    from PIL import Image
+
+    temp_dir = tempfile.TemporaryDirectory()
+
+    # Create white test images
+    path1 = Path(temp_dir.name) / "test1.png"
+    path2 = Path(temp_dir.name) / "test2.png"
+
+    Image.new("RGB", (10, 10), color="white").save(path1)
+    Image.new("RGB", (10, 10), color="white").save(path2)
+
+    # Return both the paths and the temp dir to prevent cleanup
+    return path1, path2, temp_dir
+
+
+def test_cpp_ssimulacra2(executable="ssimulacra2"):
+    """Test if C++ SSIMULACRA2 is functional.
+
+    Args:
+        executable: Name of the executable
+
+    Returns:
+        bool: True if functional
     """
     try:
-        # Check if executable exists
-        which_result = subprocess.run(
-            ["which", "as2c"], capture_output=True, text=True, check=False
-        )
-        if which_result.returncode != 0:
-            return None  # Not installed
+        # Create test images
+        path1, path2, temp_dir = create_test_images()
 
-        # Try with version flag
-        version_result = subprocess.run(
-            ["as2c", "--version"], capture_output=True, text=True, check=False
+        # Run test
+        result = run_command(
+            [executable, str(path1), str(path2)], check=False, silent=True
         )
 
-        # Verify functionality
-        functional = False
-        with tempfile.TemporaryDirectory() as temp_dir:
-            test_img1 = Path(temp_dir) / "test1.png"
-            test_img2 = Path(temp_dir) / "test2.png"
+        # Check if it produced a valid score
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                float(result.stdout.strip())
+                return True
+            except ValueError:
+                pass
 
-            # Create white images
-            Image.new("RGB", (10, 10), color="white").save(test_img1)
-            Image.new("RGB", (10, 10), color="white").save(test_img2)
+        return False
 
-            # Run test
-            test_result = subprocess.run(
-                ["as2c", str(test_img1), str(test_img2)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if test_result.returncode == 0 and test_result.stdout.strip():
-                try:
-                    float(test_result.stdout.strip())
-                    functional = True
-                except ValueError:
-                    pass
-
-        if not functional:
-            return None  # Not working properly
-
-        # Parse version from --version output
-        if version_result.returncode == 0 and version_result.stdout.strip():
-            # Check for format: "as2c 0.1.3"
-            version_match = re.search(
-                r"as2c\s+(\d+\.\d+\.\d+|\d+\.\d+)", version_result.stdout
-            )
-            if version_match:
-                return version_match.group(1)
-            else:
-                # Try generic version pattern as fallback
-                version_match = re.search(
-                    r"(\d+\.\d+\.\d+|\d+\.\d+)", version_result.stdout
-                )
-                if version_match:
-                    return version_match.group(1)
-
-        # If we get here, it works but version is unknown
-        if functional:
-            return "unknown"
-        return None
-
-    except Exception as e:
-        print(f"Error checking Rust SSIMULACRA2: {e}")
-        return None
+    except Exception:
+        return False
+    finally:
+        # Clean up
+        if "temp_dir" in locals():
+            temp_dir.cleanup()
 
 
-# Get versions on module import but don't print errors
-CPP_SSIMULACRA2_VERSION = get_cpp_ssimulacra2_version()
+def test_rust_ssimulacra2(executable="as2c"):
+    """Test if Rust SSIMULACRA2 is functional.
+
+    Args:
+        executable: Name of the executable
+
+    Returns:
+        bool: True if functional
+    """
+    try:
+        # Create test images
+        path1, path2, temp_dir = create_test_images()
+
+        # Run test
+        result = run_command(
+            [executable, str(path1), str(path2)], check=False, silent=True
+        )
+
+        # Check if it produced a valid score
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                float(result.stdout.strip())
+                return True
+            except ValueError:
+                pass
+
+        return False
+
+    except Exception:
+        return False
+    finally:
+        # Clean up
+        if "temp_dir" in locals():
+            temp_dir.cleanup()
+
+
+# Get versions of different implementations
+PYTHON_SSIMULACRA2_VERSION = (
+    getattr(ssimulacra2, "__version__", None) if ssimulacra2 else None
+)
+
+CPP_SSIMULACRA2_VERSION = get_version(
+    "ssimulacra2",
+    version_args=[],  # No arguments, version is in stderr
+    patterns=[r"SSIMULACRA\s+(\d+\.\d+)"],
+    test_function=test_cpp_ssimulacra2,
+)
 CPP_SSIMULACRA2_AVAILABLE = CPP_SSIMULACRA2_VERSION is not None
 
-RUST_SSIMULACRA2_VERSION = get_rust_ssimulacra2_version()
+RUST_SSIMULACRA2_VERSION = get_version(
+    "as2c",
+    version_args=["--version"],
+    patterns=[r"as2c\s+(\d+\.\d+\.\d+|\d+\.\d+)"],
+    test_function=test_rust_ssimulacra2,
+)
 RUST_SSIMULACRA2_AVAILABLE = RUST_SSIMULACRA2_VERSION is not None
 
 
-def run_python_ssimulacra2(original_path, compressed_path):
+def cached_result(func):
+    """Decorator to cache function results based on input paths."""
+    cache = {}
+
+    @functools.wraps(func)
+    def wrapper(input_path, decoded_path):
+        key = (str(input_path), str(decoded_path))
+        if key in cache:
+            return cache[key]
+
+        result = func(input_path, decoded_path)
+        cache[key] = result
+        return result
+
+    return wrapper
+
+
+@cached_result
+def run_python_ssimulacra2(input_path, decoded_path):
     """Run the Python implementation of SSIMULACRA2.
 
     Args:
-        original_path (str): Path to original image
-        compressed_path (str): Path to compressed/decoded image
+        input_path: Path to original image
+        decoded_path: Path to compressed/decoded image
 
     Returns:
         float: SSIMULACRA2 score or None if not available
-
-    Raises:
-        RuntimeError: If the Python implementation is not available
     """
-    if SSIMULACRA2_AVAILABLE:
-        return compute_ssimulacra2_with_alpha(original_path, compressed_path)
-    else:
-        raise RuntimeError("Python SSIMULACRA2 implementation not available")
+    if not PYTHON_SSIMULACRA2_AVAILABLE:
+        return None
+
+    try:
+        return ssimulacra2.compute_ssimulacra2_with_alpha(input_path, decoded_path)
+    except Exception as e:
+        print(f"Error running Python SSIMULACRA2: {e}")
+        return None
 
 
-def run_cpp_ssimulacra2(original_path, compressed_path):
+@cached_result
+def run_cpp_ssimulacra2(input_path, decoded_path):
     """Run the C++ implementation of SSIMULACRA2.
 
     Args:
-        original_path (str): Path to original image
-        compressed_path (str): Path to compressed/decoded image
+        input_path: Path to original image
+        decoded_path: Path to compressed/decoded image
 
     Returns:
         float: SSIMULACRA2 score or None if not available
     """
     if not CPP_SSIMULACRA2_AVAILABLE:
-        print("C++ implementation (ssimulacra2) not available")
         return None
 
     try:
-        cmd = ["ssimulacra2", original_path, compressed_path]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = run_command(
+            ["ssimulacra2", str(input_path), str(decoded_path)], check=True, silent=True
+        )
 
-        if result.returncode != 0:
-            if result.stderr:
-                print(f"C++ stderr: {result.stderr}")
-            return None
-
-        # Based on the diagnostic output, we know the score is in stdout
-        output = result.stdout.strip()
-        if not output:
-            return None
-
-        # Try to parse the entire output as a float (which is what your implementation does)
+        # Try to parse the output as a float
         try:
-            return float(output)
+            return float(result.stdout.strip())
         except ValueError:
-            # If that doesn't work, try line by line
-            lines = output.splitlines()
-            for line in lines:
-                try:
-                    # Try to parse the line as a float
-                    return float(line.strip())
-                except ValueError:
-                    # Try to extract a float from the line
-                    match = re.search(r"(-?\d+\.\d+)", line)
-                    if match:
-                        return float(match.group(1))
+            # Try to extract a float from the output
+            match = re.search(r"(-?\d+\.\d+)", result.stdout)
+            if match:
+                return float(match.group(1))
 
-        # If we get here, couldn't parse the output
-        print(f"Could not parse C++ output: '{output}'")
         return None
 
     except Exception as e:
-        print(f"Error with C++ implementation: {e}")
+        print(f"Error running C++ SSIMULACRA2: {e}")
         return None
 
 
-def run_rust_ssimulacra2(original_path, compressed_path):
+@cached_result
+def run_rust_ssimulacra2(input_path, decoded_path):
     """Run the Rust implementation (as2c) of SSIMULACRA2.
 
     Args:
-        original_path (str): Path to original image
-        compressed_path (str): Path to compressed/decoded image
+        input_path: Path to original image
+        decoded_path: Path to compressed/decoded image
 
     Returns:
         float: SSIMULACRA2 score or None if not available
     """
     if not RUST_SSIMULACRA2_AVAILABLE:
-        print("Rust implementation (as2c) not available")
         return None
 
     try:
-        cmd = ["as2c", original_path, compressed_path]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = run_command(
+            ["as2c", str(input_path), str(decoded_path)], check=True, silent=True
+        )
 
-        if result.returncode != 0:
-            if result.stderr:
-                print(f"Rust stderr: {result.stderr}")
-            return None
-
-        output = result.stdout.strip()
-        if not output:
-            return None
-
-        # First try to parse the entire output as a float
+        # Try to parse the output as a float
         try:
-            return float(output)
+            return float(result.stdout.strip())
         except ValueError:
-            # If that doesn't work, try line by line
-            lines = output.splitlines()
-            for line in lines:
-                try:
-                    # Try to parse the line as a float
-                    return float(line.strip())
-                except ValueError:
-                    # Try to extract a float from the line
-                    match = re.search(r"(-?\d+\.\d+)", line)
-                    if match:
-                        return float(match.group(1))
+            # Try to extract a float from the output
+            match = re.search(r"(-?\d+\.\d+)", result.stdout)
+            if match:
+                return float(match.group(1))
 
-        # If we get here, couldn't parse the output
-        print(f"Could not parse Rust output: '{output}'")
         return None
 
     except Exception as e:
-        print(f"Error with Rust implementation: {e}")
+        print(f"Error running Rust SSIMULACRA2: {e}")
         return None
+
+
+def get_best_ssimulacra2():
+    """Get the best available SSIMULACRA2 implementation.
+
+    Returns:
+        function: The best available implementation
+    """
+    # Priority: Python (most likely available), C++, Rust
+    if PYTHON_SSIMULACRA2_AVAILABLE:
+        return run_python_ssimulacra2
+    elif CPP_SSIMULACRA2_AVAILABLE:
+        return run_cpp_ssimulacra2
+    elif RUST_SSIMULACRA2_AVAILABLE:
+        return run_rust_ssimulacra2
+    else:
+        raise RuntimeError("No SSIMULACRA2 implementation available")
+
+
+def run_all_implementations(input_path, decoded_path):
+    """Run all available SSIMULACRA2 implementations.
+
+    Args:
+        input_path: Path to original image
+        decoded_path: Path to compressed/decoded image
+
+    Returns:
+        dict: Results from all implementations
+    """
+    results = {}
+
+    # Run Python implementation
+    python_score = run_python_ssimulacra2(input_path, decoded_path)
+    if python_score is not None:
+        results["python"] = python_score
+
+    # Run C++ implementation
+    cpp_score = run_cpp_ssimulacra2(input_path, decoded_path)
+    if cpp_score is not None:
+        results["cpp"] = cpp_score
+
+    # Run Rust implementation
+    rust_score = run_rust_ssimulacra2(input_path, decoded_path)
+    if rust_score is not None:
+        results["rust"] = rust_score
+
+    return results
