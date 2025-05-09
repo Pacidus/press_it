@@ -5,6 +5,7 @@ import time
 import signal
 import shutil
 import tempfile
+import random  # Added missing import
 import pandas as pd
 from pathlib import Path
 import atexit
@@ -291,8 +292,6 @@ class BenchmarkRunner:
         Returns:
             int: Number of images processed
         """
-        import random
-
         # Print information
         self._print_benchmark_info()
 

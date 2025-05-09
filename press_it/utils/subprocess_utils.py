@@ -5,7 +5,7 @@ import os
 import functools
 
 
-def run_command(cmd, check=True, capture_output=True, silent=False):
+def run_command(cmd, check=True, capture_output=True, silent=True):
     """Run a subprocess command with consistent handling.
 
     Args:

@@ -3,6 +3,49 @@
 
 import sys
 import argparse
+from press_it import __version__
+from press_it.utils.subprocess_utils import check_dependencies
+
+
+def create_parent_parser():
+    """Create a parent parser with common arguments."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed progress information",
+    )
+
+    # Add version information for parent parser epilog
+    parser.epilog = f"press_it {__version__}"
+
+    return parser
+
+
+def run_with_args(parse_func, run_func, dependencies):
+    """Run the CLI with parsed arguments and dependency checking.
+
+    Args:
+        parse_func: Function to parse arguments
+        run_func: Function to run with parsed arguments
+        dependencies: List of required system dependencies
+
+    Returns:
+        int: Exit code
+    """
+    # Parse arguments
+    args = parse_func()
+
+    # Verify system dependencies
+    try:
+        check_dependencies(dependencies)
+    except Exception as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    # Run with parsed arguments
+    return run_func(args)
 
 
 def main():
