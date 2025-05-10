@@ -47,31 +47,6 @@ from press_it.benchmark.analysis import (
     generate_benchmark_report,
 )
 
-# Try to import visualization module (optional)
-try:
-    from press_it.benchmark.analysis.visualization import (
-        check_visualization_available,
-        plot_quality_vs_compression,
-        plot_format_comparison,
-        plot_implementation_comparison,
-        plot_quality_distribution,
-        create_dashboard,
-    )
-
-    # Add visualization functions to __all__
-    _viz_exports = [
-        "check_visualization_available",
-        "plot_quality_vs_compression",
-        "plot_format_comparison",
-        "plot_implementation_comparison",
-        "plot_quality_distribution",
-        "create_dashboard",
-    ]
-    VISUALIZATION_AVAILABLE = True
-
-except ImportError:
-    VISUALIZATION_AVAILABLE = False
-    _viz_exports = []
 
 # Define what's available when doing "from press_it.benchmark import *"
 __all__ = [
@@ -109,6 +84,4 @@ __all__ = [
     "analyze_encoder_consistency",
     "analyze_image_factors",
     "generate_benchmark_report",
-    # Visualization availability flag
-    "VISUALIZATION_AVAILABLE",
-] + _viz_exports
+]

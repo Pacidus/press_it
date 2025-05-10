@@ -127,22 +127,6 @@ def analyze_benchmark(
             generate_json_report(df, report_path)
             print(f"Generated JSON report: {report_path}")
 
-        # Generate visualizations if matplotlib is available
-        try:
-            from press_it.benchmark.analysis.visualization import (
-                check_visualization_available,
-                create_dashboard,
-            )
-
-            if check_visualization_available():
-                print("Generating visualizations...")
-                viz_dir = os.path.join(output_dir, "visualizations")
-                plots = create_dashboard(df, viz_dir)
-                print(f"Generated {len(plots)} visualization plots in {viz_dir}")
-
-        except ImportError:
-            print("Visualizations skipped (matplotlib not available)")
-
     return summary
 
 
