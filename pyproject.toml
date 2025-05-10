@@ -42,6 +42,13 @@ dependencies = [
     "pyarrow>=7.0.0",
     "zstandard>=0.18.0",  # For better parquet compression
     "numpy>=1.20.0",      # For optimized data types
+    "matplotlib>=3.4.0",  # For visualization
+    "scipy>=1.8.0",       # For regression models
+]
+
+[project.optional-dependencies]
+viz = [
+    "bokeh>=3.0.0",      # For interactive HTML visualizations
 ]
 
 [project.urls]
@@ -52,6 +59,7 @@ Source = "https://github.com/Pacidus/press_it"
 [project.scripts]
 press-it = "press_it.cli.compression_cli:main"
 press-benchmark = "press_it.cli.benchmark_cli:main"
+press-viz = "press_it.cli.visualization_cli:main"
 
 [tool.hatch.version]
 path = "press_it/__init__.py"
