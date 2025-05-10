@@ -1,5 +1,6 @@
 """Visualization utilities for benchmark analysis."""
 
+from logging import warn
 import os
 import numpy as np
 import pandas as pd
@@ -49,6 +50,14 @@ try:
     test_ax.text(0.5, 0.5, r"$\alpha$", usetex=True)
     plt.close(test_fig)
     USE_LATEX = True  # LaTeX is working
+    mpl.rcParams.update(
+        {
+            "text.usetex": True,
+            "font.family": "serif",
+            "font.serif": ["Computer Modern Roman"],
+        }
+    )
+
     print("LaTeX is available for fancy math formatting")
 except Exception:
     print("LaTeX not available or working, using standard fonts")
@@ -56,11 +65,13 @@ except Exception:
 # For HTML visualizations
 try:
     import bokeh
+
     from bokeh.plotting import figure, output_file, save
     from bokeh.layouts import column, row, gridplot
-    from bokeh.models import ColumnDataSource, HoverTool, Legend, LegendItem, dodge
+    from bokeh.models import ColumnDataSource, HoverTool, Legend, LegendItem
     from bokeh.palettes import Category10, Viridis256
     from bokeh.themes import built_in_themes
+    from bokeh.transform import dodge
 
     BOKEH_AVAILABLE = True
 except ImportError:
@@ -208,7 +219,7 @@ def format_poly_formula(coeffs, decimal_places=4):
             else:
                 formula += f" + {term}"
 
-    return formula
+    return "$" + formula + "$"
 
 
 def fit_regression_model(x, y, model_type="linear", degree=2):
