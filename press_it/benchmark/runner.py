@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import random
 import pandas as pd
+import numpy as np
 from pathlib import Path
 import atexit
 
@@ -55,6 +56,57 @@ def register_cleanup(cleanup_func):
         cleanup_func: Function to call at exit
     """
     atexit.register(cleanup_func)
+
+
+def optimize_dataframe(df):
+    """Optimize a dataframe for storage by using appropriate data types.
+
+    Args:
+        df: DataFrame to optimize
+
+    Returns:
+        DataFrame: Optimized dataframe
+    """
+    if len(df) == 0:
+        return df
+
+    # Make a copy to avoid modifying the original
+    result = df.copy()
+
+    # Convert string columns to categorical for better compression
+    for col in result.columns:
+        if pd.api.types.is_object_dtype(result[col]):
+            # Check if it contains string data
+            if result[col].dropna().map(lambda x: isinstance(x, str)).all():
+                result[col] = result[col].astype("category")
+
+    # Optimize numeric columns
+    for col in result.columns:
+        if pd.api.types.is_numeric_dtype(
+            result[col]
+        ) and not pd.api.types.is_categorical_dtype(result[col]):
+            # Downcast integers if possible
+            if pd.api.types.is_integer_dtype(result[col]):
+                min_val = result[col].min()
+                max_val = result[col].max()
+
+                # Choose smallest possible int type
+                if min_val >= 0:
+                    if max_val <= 255:
+                        result[col] = result[col].astype(np.uint8)
+                    elif max_val <= 65535:
+                        result[col] = result[col].astype(np.uint16)
+                    elif max_val <= 4294967295:
+                        result[col] = result[col].astype(np.uint32)
+                else:
+                    if min_val >= -128 and max_val <= 127:
+                        result[col] = result[col].astype(np.int8)
+                    elif min_val >= -32768 and max_val <= 32767:
+                        result[col] = result[col].astype(np.int16)
+                    elif min_val >= -2147483648 and max_val <= 2147483647:
+                        result[col] = result[col].astype(np.int32)
+
+    return result
 
 
 class BenchmarkRunner:
@@ -241,10 +293,25 @@ class BenchmarkRunner:
         # Convert to DataFrame
         new_results_df = pd.DataFrame(self.results)
 
+        # Optimize the DataFrame by applying data type optimizations
+        # This ensures all string columns are categorical from the start
+        new_results_df = optimize_dataframe(new_results_df)
+
         # Append to existing file if it exists
         if self.output_file.exists():
             try:
                 existing_df = pd.read_parquet(self.output_file)
+
+                # Ensure existing data has same type optimization
+                if not all(
+                    pd.api.types.is_categorical_dtype(existing_df[col])
+                    for col in existing_df.columns
+                    if pd.api.types.is_object_dtype(existing_df[col])
+                ):
+                    # Convert to optimized types if not already
+                    existing_df = optimize_dataframe(existing_df)
+
+                # Concatenate with standardized types
                 combined_df = pd.concat(
                     [existing_df, new_results_df], ignore_index=True
                 )
@@ -254,14 +321,15 @@ class BenchmarkRunner:
                         f"Appending {len(new_results_df)} rows to existing {len(existing_df)} rows"
                     )
 
+                # Save with optimal compression settings
                 combined_df.to_parquet(
                     self.output_file,
                     engine="pyarrow",
-                    compression="zstd",  # Use zstd compression for better ratio
-                    compression_level=9,  # Maximum compression level
+                    compression="zstd",
+                    compression_level=9,
                     index=False,
-                    use_dictionary=True,  # Enable dictionary encoding
-                    coerce_timestamps="ms",  # Timestamp precision optimization
+                    use_dictionary=True,  # Always use dictionary encoding
+                    coerce_timestamps="ms",
                     allow_truncated_timestamps=True,
                 )
 
@@ -274,19 +342,19 @@ class BenchmarkRunner:
                     compression="zstd",
                     compression_level=9,
                     index=False,
-                    use_dictionary=True,
+                    use_dictionary=True,  # Always use dictionary encoding
                     coerce_timestamps="ms",
                     allow_truncated_timestamps=True,
                 )
         else:
-            # Create new file
+            # Create new file with optimal settings
             new_results_df.to_parquet(
                 self.output_file,
                 engine="pyarrow",
                 compression="zstd",
                 compression_level=9,
                 index=False,
-                use_dictionary=True,
+                use_dictionary=True,  # Always use dictionary encoding
                 coerce_timestamps="ms",
                 allow_truncated_timestamps=True,
             )

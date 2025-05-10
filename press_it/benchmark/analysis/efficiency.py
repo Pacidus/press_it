@@ -5,6 +5,7 @@ import numpy as np
 from press_it.benchmark.analysis.core import (
     add_categorical_columns,
     get_best_score_column,
+    calculate_compression_ratio,
 )
 
 
@@ -29,26 +30,21 @@ def analyze_quality_vs_size(df, output_path=None):
         print("No valid quality scores available for analysis")
         return None
 
-    # Calculate compression ratio if not present
-    if (
-        "compression_ratio" not in df.columns
-        and "original_size" in df.columns
-        and "compressed_size" in df.columns
-    ):
-        df["compression_ratio"] = df.apply(
-            lambda row: (
-                row["original_size"] / row["compressed_size"]
-                if row["compressed_size"] > 0
-                else float("inf")
-            ),
-            axis=1,
-        )
-
     # Make a copy and make sure we have quality bins
     analysis_data = add_categorical_columns(df)
 
+    # ALWAYS calculate compression ratio here
+    if (
+        "original_size" in analysis_data.columns
+        and "compressed_size" in analysis_data.columns
+    ):
+        analysis_data["compression_ratio"] = calculate_compression_ratio(analysis_data)
+    else:
+        print("Cannot calculate compression ratio: missing required columns")
+        return None
+
     # Group by compression type and quality level
-    grouped = analysis_data.groupby(["compression_type", "quality"])
+    grouped = analysis_data.groupby(["compression_type", "quality"], observed=True)
 
     # Aggregate compression metrics
     analysis_df = grouped.agg(
@@ -109,37 +105,32 @@ def analyze_efficiency_by_quality(df):
     if "quality_bin" not in df.columns or len(df) == 0:
         return {}
 
-    # Ensure compression_ratio is available
-    if "compression_ratio" not in df.columns:
-        # Calculate it if we have the component values
-        if "original_size" in df.columns and "compressed_size" in df.columns:
-            df["compression_ratio"] = df.apply(
-                lambda row: (
-                    row["original_size"] / row["compressed_size"]
-                    if row["compressed_size"] > 0
-                    else float("inf")
-                ),
-                axis=1,
-            )
-        else:
-            return {}
+    # Calculate compression_ratio for analysis
+    if "original_size" in df.columns and "compressed_size" in df.columns:
+        df["compression_ratio"] = calculate_compression_ratio(df)
+    else:
+        return {}
 
     # Find most efficient format for each quality bin
     best_formats = {}
 
-    for quality_bin, group in df.groupby("quality_bin"):
+    for quality_bin, group in df.groupby("quality_bin", observed=True):
         if len(group) < 2:
             continue
 
         # Get average compression ratio by format
-        format_efficiency = group.groupby("compression_type")[
+        format_efficiency = group.groupby("compression_type", observed=True)[
             "compression_ratio"
         ].mean()
 
-        if len(format_efficiency) > 0:
-            # Get format with highest compression ratio
+        if len(format_efficiency) > 0 and not format_efficiency.isna().all():
+            # Skip NA values when finding maximum
+            format_efficiency = format_efficiency.fillna(float("-inf"))
             best_format = format_efficiency.idxmax()
-            best_formats[str(quality_bin)] = best_format
+
+            # Only add if we found a valid format
+            if best_format != float("-inf"):
+                best_formats[str(quality_bin)] = best_format
 
     return best_formats
 
@@ -156,32 +147,24 @@ def analyze_image_factors(df):
     if len(df) < 5:
         return {}
 
-    # Make sure we have categorical columns and compression_ratio
+    # Make sure we have categorical columns
     analysis_data = add_categorical_columns(df)
 
-    # Ensure compression_ratio is calculated
-    if "compression_ratio" not in analysis_data.columns:
-        if (
-            "original_size" in analysis_data.columns
-            and "compressed_size" in analysis_data.columns
-        ):
-            analysis_data["compression_ratio"] = analysis_data.apply(
-                lambda row: (
-                    row["original_size"] / row["compressed_size"]
-                    if row["compressed_size"] > 0
-                    else float("inf")
-                ),
-                axis=1,
-            )
-        else:
-            return {}
+    # ALWAYS calculate compression_ratio
+    if (
+        "original_size" in analysis_data.columns
+        and "compressed_size" in analysis_data.columns
+    ):
+        analysis_data["compression_ratio"] = calculate_compression_ratio(analysis_data)
+    else:
+        return {}
 
     # Analyze by size category
     if "size_category" not in analysis_data.columns:
         return {}
 
     size_analysis = (
-        analysis_data.groupby(["size_category", "compression_type"])[
+        analysis_data.groupby(["size_category", "compression_type"], observed=True)[
             "compression_ratio"
         ]
         .agg(["mean", "median", "count"])
@@ -191,7 +174,7 @@ def analyze_image_factors(df):
     # Convert to structured dictionary
     results = {"image_size_impact": {}}
 
-    for size_cat, size_data in size_analysis.groupby("size_category"):
+    for size_cat, size_data in size_analysis.groupby("size_category", observed=True):
         if len(size_data) == 0 or size_data["count"].sum() < 3:
             continue
 
@@ -223,23 +206,15 @@ def analyze_compression_vs_format(df):
     if len(df) < 5 or "compression_type" not in df.columns:
         return {}
 
-    # Ensure compression_ratio is calculated
-    if "compression_ratio" not in df.columns:
-        if "original_size" in df.columns and "compressed_size" in df.columns:
-            df["compression_ratio"] = df.apply(
-                lambda row: (
-                    row["original_size"] / row["compressed_size"]
-                    if row["compressed_size"] > 0
-                    else float("inf")
-                ),
-                axis=1,
-            )
-        else:
-            return {}
+    # ALWAYS calculate compression_ratio
+    if "original_size" in df.columns and "compressed_size" in df.columns:
+        df["compression_ratio"] = calculate_compression_ratio(df)
+    else:
+        return {}
 
     # Group by format and calculate statistics
     format_stats = (
-        df.groupby("compression_type")["compression_ratio"]
+        df.groupby("compression_type", observed=True)["compression_ratio"]
         .agg(["mean", "median", "min", "max", "std", "count"])
         .reset_index()
     )

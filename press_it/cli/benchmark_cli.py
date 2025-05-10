@@ -147,6 +147,9 @@ def handle_analysis(args, benchmark_file=None):
             print("No benchmark files found in the current directory.")
             return 1
 
+        # Remove duplicates from benchmark files list
+        benchmark_files = list(dict.fromkeys(benchmark_files))
+
         print(f"Combining {len(benchmark_files)} benchmark files...")
         output_path = "combined_benchmark.parquet"
         df = combine_benchmark_files(benchmark_files, output_path)

@@ -4,6 +4,7 @@ import pandas as pd
 from press_it.benchmark.analysis.core import (
     add_categorical_columns,
     get_best_score_column,
+    calculate_compression_ratio,
 )
 from press_it.benchmark.analysis.efficiency import analyze_efficiency_by_quality
 
@@ -17,21 +18,6 @@ def summarize_benchmark_data(df):
     Returns:
         dict: Summary statistics
     """
-    # Calculate compression_ratio if not present
-    if (
-        "compression_ratio" not in df.columns
-        and "original_size" in df.columns
-        and "compressed_size" in df.columns
-    ):
-        df["compression_ratio"] = df.apply(
-            lambda row: (
-                row["original_size"] / row["compressed_size"]
-                if row["compressed_size"] > 0
-                else float("inf")
-            ),
-            axis=1,
-        )
-
     # Add categorical columns
     df = add_categorical_columns(df)
 
@@ -85,7 +71,7 @@ def summarize_benchmark_data(df):
                 "max": int(group["quality"].max()),
                 "mean": round(group["quality"].mean(), 2),
             }
-            for comp_type, group in df.groupby("compression_type")
+            for comp_type, group in df.groupby("compression_type", observed=True)
         }
 
     # Get the best available score column
@@ -111,24 +97,33 @@ def summarize_benchmark_data(df):
                         "mean": round(group[score_col].mean(), 2),
                         "median": round(group[score_col].median(), 2),
                     }
-                    for comp_type, group in df.groupby("compression_type")
+                    for comp_type, group in df.groupby(
+                        "compression_type", observed=True
+                    )
                     if group[score_col].notna().any()
                 }
     except ValueError:
         # No valid score columns found
         pass
 
-    # Compression ratio statistics
-    if "compression_ratio" in df.columns:
+    # Compression ratio statistics - ALWAYS calculate, never retrieve from df
+    if "original_size" in df.columns and "compressed_size" in df.columns:
+        # Calculate compression ratio for analysis
+        compression_ratio = calculate_compression_ratio(df)
+
         summary["compression_stats"]["overall"] = {
-            "min": round(df["compression_ratio"].min(), 2),
-            "max": round(df["compression_ratio"].max(), 2),
-            "mean": round(df["compression_ratio"].mean(), 2),
-            "median": round(df["compression_ratio"].median(), 2),
+            "min": round(compression_ratio.min(), 2),
+            "max": round(compression_ratio.max(), 2),
+            "mean": round(compression_ratio.mean(), 2),
+            "median": round(compression_ratio.median(), 2),
         }
 
         # Compression stats by format
         if "compression_type" in df.columns:
+            # Add compression_ratio as a temporary column for groupby
+            temp_df = df.copy()
+            temp_df["compression_ratio"] = compression_ratio
+
             summary["compression_stats"]["by_compression_type"] = {
                 comp_type: {
                     "min": round(group["compression_ratio"].min(), 2),
@@ -136,7 +131,9 @@ def summarize_benchmark_data(df):
                     "mean": round(group["compression_ratio"].mean(), 2),
                     "median": round(group["compression_ratio"].median(), 2),
                 }
-                for comp_type, group in df.groupby("compression_type")
+                for comp_type, group in temp_df.groupby(
+                    "compression_type", observed=True
+                )
             }
 
     # Implementation availability
